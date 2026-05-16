@@ -1,0 +1,15 @@
+# Firmware build artifacts
+firmware/muffi-frame/build/
+
+# Python cache
+__pycache__/
+*.pyc
+
+# Editor/OS
+.DS_Store
+Thumbs.db
+
+# Local env/secrets (if ever added)
+.env
+.env.*
+*.local
