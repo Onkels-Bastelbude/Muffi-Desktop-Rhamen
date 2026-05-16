@@ -7,13 +7,19 @@ Ziel: Maika, Uwe und Büro haben immer denselben Wissensstand.
 - **DECISIONS.md** = Entscheidungen mit Begründung
 - **ARBEITSPROTOKOLL.md** = Chronik (was gemacht wurde)
 
+## GitHub-Quelle (gemeinsamer Stand)
+- Repo: `git@github.com:Onkels-Bastelbude/Muffi-Desktop-Rhamen.git`
+- Web: `https://github.com/Onkels-Bastelbude/Muffi-Desktop-Rhamen`
+
 ## Pflicht-Ablauf bei jeder Arbeit
+0. **Vor Start syncen:** `git pull --rebase`
 1. **Vor Start lesen:** `Muffirahmen.md`, `DECISIONS.md`, `ARBEITSPROTOKOLL.md`
 2. Arbeit durchführen
 3. **Nach Ende aktualisieren:**
    - `Muffirahmen.md` (Heute erledigt / Nächster Schritt / Blocker)
    - `DECISIONS.md` (nur wenn Entscheidung gefallen ist)
    - `ARBEITSPROTOKOLL.md` (kurzer Logeintrag)
+4. **Sync zurück ins Repo:** `git add -A && git commit -m "..." && git push`
 
 ## Update-Regeln
 - Kurz, konkret, kein Roman

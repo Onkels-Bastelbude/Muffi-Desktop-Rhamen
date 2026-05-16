@@ -29,6 +29,10 @@ Stand: 2026-05-16
 - Live-Server-Code: `projects/muffi-bilderrahmen/runtime/frame-server.py`
 - Live-Firmware-Code: `projects/muffi-bilderrahmen/firmware/muffi-frame/muffi-frame.ino`
 
+## GitHub (gemeinsamer Projektstand)
+- Repo: `https://github.com/Onkels-Bastelbude/Muffi-Desktop-Rhamen`
+- SSH: `git@github.com:Onkels-Bastelbude/Muffi-Desktop-Rhamen.git`
+
 ## Neue Notizen von Andre (Strategie, 2026-05-16)
 
 ### Vision / Produktbild
