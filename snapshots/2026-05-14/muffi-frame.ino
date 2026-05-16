@@ -16,7 +16,7 @@
 // ============ EINSTELLUNGEN ============
 const char* WIFI_SSID     = "Papa Wlan";
 const char* WIFI_PASSWORD = "Andre123456";
-const char* SERVER_BASE   = "http://frame-server.local:8765";
+const char* SERVER_BASE   = "http://frame-server.local:8765"; // redacted for public repo
 #define DEFAULT_REFRESH_MS   (5 * 60 * 1000UL)
 #define BUTTON_PIN   9    // BOOT-Knopf
 #define SERVO_PIN    3    // SG90 Signal

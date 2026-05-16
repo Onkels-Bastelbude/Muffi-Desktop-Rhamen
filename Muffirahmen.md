@@ -23,9 +23,9 @@ Stand: 2026-05-16
 - Keine harten technischen Blocker bekannt
 
 ## Betriebsdaten (aktuell bekannt)
-- Server-Basis: `http://frame-server.local:8765`
+- Server-Basis: `http://frame-server.local:8765` (Beispiel)
 - ESP (zuletzt): `<lokale-esp-ip>`
-- SMB-Mount: `/mnt/muffi`
+- SMB-Mount: `<lokaler-mountpfad>`
 - Live-Server-Code: `projects/muffi-bilderrahmen/runtime/frame-server.py`
 - Live-Firmware-Code: `projects/muffi-bilderrahmen/firmware/muffi-frame/muffi-frame.ino`
 

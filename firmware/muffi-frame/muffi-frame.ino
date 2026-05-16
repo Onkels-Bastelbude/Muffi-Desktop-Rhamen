@@ -17,7 +17,7 @@
 // ============ EINSTELLUNGEN ============
 const char* WIFI_SSID     = "Papa Wlan";
 const char* WIFI_PASSWORD = "Andre123456";
-const char* SERVER_BASE   = "http://frame-server.local:8765";
+const char* SERVER_BASE   = "http://frame-server.local:8765"; // Beispielwert, lokal anpassen
 #define DEFAULT_REFRESH_MS   (10 * 1000UL)
 #define BUTTON_PIN   9    // BOOT-Knopf
 #define SIDE_BUTTON_PIN 0  // Seitentaste (bei Bedarf anpassen)
