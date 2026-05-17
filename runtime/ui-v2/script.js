@@ -1,10 +1,27 @@
 const $ = (s) => document.querySelector(s);
 const $$ = (s) => Array.from(document.querySelectorAll(s));
 
-function askAdminPassword() {
+let adminPasswordCache = '';
+try { adminPasswordCache = sessionStorage.getItem('muffiAdminPw') || ''; } catch (_) {}
+
+function clearAdminPasswordCache() {
+  adminPasswordCache = '';
+  try {
+    sessionStorage.removeItem('muffiAdminPw');
+    sessionStorage.removeItem('muffiAdminPwRemember');
+  } catch (_) {}
+}
+
+function askAdminPassword(opts = {}) {
+  const forcePrompt = !!opts.forcePrompt;
+  if (!forcePrompt && adminPasswordCache) {
+    return Promise.resolve(adminPasswordCache);
+  }
+
   return new Promise((resolve) => {
     const modal = $('#admin-pw-modal');
     const input = $('#admin-pw-input');
+    const remember = $('#admin-pw-remember');
     const ok = $('#admin-pw-ok');
     const cancel = $('#admin-pw-cancel');
     if (!modal || !input || !ok || !cancel) return resolve(null);
@@ -14,6 +31,7 @@ function askAdminPassword() {
       ok.onclick = null;
       cancel.onclick = null;
       input.value = '';
+      if (remember) remember.checked = false;
     };
 
     modal.classList.remove('hidden');
@@ -21,6 +39,16 @@ function askAdminPassword() {
 
     ok.onclick = () => {
       const v = input.value || '';
+      const keep = !!remember?.checked;
+      if (v && keep) {
+        adminPasswordCache = v;
+        try {
+          sessionStorage.setItem('muffiAdminPw', v);
+          sessionStorage.setItem('muffiAdminPwRemember', '1');
+        } catch (_) {}
+      } else {
+        clearAdminPasswordCache();
+      }
       cleanup();
       resolve(v || null);
     };
@@ -44,6 +72,7 @@ async function jpost(url, body) { const r = await fetch(url, { method:'POST', he
 
 let currentFrame = '';
 let storageState = null;
+let storageAutoBusy = false;
 
 function storageHealthLabel(s) {
   if (!s) return '-';
@@ -70,15 +99,161 @@ async function refreshServer() {
 function refreshStorageUi(state) {
   if (!state) return;
   $('#storage-local-path').textContent = state.local?.path || '-';
-  $('#storage-network-path').value = state.network?.path || '/mnt/muffi';
+  const networkInput = $('#storage-network-path');
+  if (networkInput && document.activeElement !== networkInput) {
+    networkInput.value = state.network?.path || '/mnt/muffi';
+  }
   $('#storage-local-status').textContent = storageHealthLabel(state.local);
   $('#storage-network-status').textContent = storageHealthLabel(state.network);
   $('#storage-local-card')?.classList.toggle('active', state.activeSource === 'local');
   $('#storage-network-card')?.classList.toggle('active', state.activeSource === 'network');
 }
 
+function renderStorageDiagnostics(d) {
+  const el = $('#storage-diagnose-log');
+  if (!el || !d) return;
+  const esc = (v) => String(v ?? '').replace(/[&<>"']/g, (ch) => ({ '&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;' }[ch]));
+  const checks = Array.isArray(d.checklist) ? d.checklist : [];
+  const badge = $('#diag70-status-badge');
+  if (badge) {
+    badge.className = 'diag70-badge ' + (d.ok ? 'diag70-ok' : 'diag70-warn');
+    badge.textContent = d.ok ? 'OK ✅' : 'PROBLEM ⚠️';
+  }
+  $('#diag70-reason').textContent = d.reason || '-';
+  $('#diag70-next').textContent = d.nextAction || '-';
+
+  const checksEl = $('#diag70-checks');
+  if (checksEl) {
+    checksEl.innerHTML = checks.map((c) => `
+      <div class="diag70-check">
+        <span class="diag70-check-label">${esc(c.label || c.key || '-')}</span>
+        <span class="diag70-check-val">${c.ok ? '✅ OK' : '❌ FEHLT'}</span>
+      </div>
+    `).join('');
+  }
+
+  const chipsEl = $('#diag70-chips');
+  if (chipsEl) {
+    chipsEl.innerHTML = [
+      `Quelle: ${esc(d.activeSource || '-')}`,
+      `Pfad: ${esc(d.networkPath || '-')}`,
+      `Mount: ${esc(d.mountInfo || '-')}`,
+      `Owner/Mode: ${esc(d.pathOwner || '-')} / ${esc(d.pathMode || '-')}`,
+    ].map((x) => `<span class="diag70-chip">${x}</span>`).join('');
+  }
+}
+
+async function refreshStorageDiagnostics() {
+  try {
+    const d = await jget('/api/storage/diagnostics');
+    renderStorageDiagnostics(d);
+    return d;
+  } catch (e) {
+    const badge = $('#diag70-status-badge');
+    if (badge) {
+      badge.className = 'diag70-badge diag70-err';
+      badge.textContent = 'OFFLINE ❌';
+    }
+    const reason = $('#diag70-reason');
+    if (reason) reason.textContent = 'Diagnose fehlgeschlagen: ' + (e?.message || e);
+    const next = $('#diag70-next');
+    if (next) next.textContent = 'Server prüfen und erneut versuchen.';
+    return null;
+  }
+}
+
+function setStorageAutoMsg(text) {
+  const el = $('#storage-auto-msg');
+  if (el) el.textContent = text || '';
+}
+
+function isCheckOk(diag, key) {
+  const arr = Array.isArray(diag?.checklist) ? diag.checklist : [];
+  const item = arr.find((x) => x?.key === key);
+  return !!item?.ok;
+}
+
+async function runStorageAutoConnect() {
+  if (storageAutoBusy) return;
+  storageAutoBusy = true;
+  const autoBtn = $('#storage-auto-fix-btn');
+  if (autoBtn) autoBtn.disabled = true;
+
+  try {
+    const raw = ($('#storage-network-path')?.value || '').trim();
+    if (!raw) throw new Error('Bitte zuerst einen Netzwerkpfad eintragen.');
+
+    setStorageAutoMsg('🔎 Prüfe Eingabe und aktuellen Status …');
+    const share = await jpost('/api/storage/share-check', { networkPath: raw });
+
+    let adminPw = null;
+    if (share.shareSwitchRequired || share.blocked) {
+      setStorageAutoMsg('🔐 Share muss umgestellt werden. Bitte Passwort eingeben …');
+      adminPw = await askAdminPassword();
+      if (!adminPw) throw new Error('Abgebrochen (kein Passwort eingegeben).');
+      await jpost('/api/storage/share-switch', { password: adminPw, networkPath: raw });
+    } else {
+      await jpost('/api/storage', { mode: 'auto', networkPath: raw });
+    }
+
+    setStorageAutoMsg('🔌 Verbinde Share neu …');
+    if (!adminPw) {
+      adminPw = await askAdminPassword();
+      if (!adminPw) throw new Error('Abgebrochen (kein Passwort eingegeben).');
+    }
+    await jpost('/api/storage/remount', { password: adminPw });
+
+    setStorageAutoMsg('✅ Prüfe Verbindung und aktiviere Netzwerkordner …');
+    const diag = await refreshStorageDiagnostics();
+    if (!diag?.ok && (!isCheckOk(diag, 'is_mount') || !isCheckOk(diag, 'writable'))) {
+      throw new Error(`${diag?.reason || 'Share nicht bereit.'} ${diag?.nextAction || ''}`.trim());
+    }
+
+    const d = await jpost('/api/storage', { mode: 'network', networkPath: raw });
+    storageState = d;
+    refreshStorageUi(storageState);
+    await refreshServer();
+    await refreshMediaAndFrame();
+    const finalDiag = await refreshStorageDiagnostics();
+
+    if (d.activeSource === 'network') {
+      setStorageAutoMsg('🎉 Fertig! Netzwerkordner ist jetzt aktiv.');
+      $('#storage-msg').textContent = '✅ Automatisch verbunden. Medien laufen jetzt über den Netzwerkordner.';
+    } else {
+      throw new Error(finalDiag?.reason || 'Umschalten auf Netzwerk ist fehlgeschlagen.');
+    }
+  } catch (e) {
+    const msg = e?.message || String(e);
+    setStorageAutoMsg(`⚠️ Hat nicht geklappt: ${msg}`);
+    $('#storage-msg').textContent = `⚠️ Automatik konnte nicht abschließen: ${msg}`;
+    await refreshStorageDiagnostics();
+  } finally {
+    storageAutoBusy = false;
+    if (autoBtn) autoBtn.disabled = false;
+  }
+}
+
 $('#storage-help-toggle')?.addEventListener('click', () => {
   $('#storage-help')?.classList.toggle('hidden');
+});
+
+$('#admin-pw-clear-btn')?.addEventListener('click', () => {
+  clearAdminPasswordCache();
+  $('#storage-msg').textContent = '✅ Gespeichertes Admin-Passwort wurde gelöscht.';
+});
+
+function storageCardClickIsInteractive(target) {
+  return !!target?.closest('button,input,select,textarea,a,label,code,pre');
+}
+
+$('#storage-local-card')?.addEventListener('click', (e) => {
+  if (storageCardClickIsInteractive(e.target)) return;
+  $('#use-local-btn')?.click();
+});
+
+$('#storage-network-card')?.addEventListener('click', async (e) => {
+  if (storageCardClickIsInteractive(e.target)) return;
+  $('#use-network-btn')?.click();
 });
 
 function renderMedia(files) {
@@ -195,6 +370,12 @@ $('#use-local-btn')?.addEventListener('click', async () => {
 
 $('#use-network-btn')?.addEventListener('click', async () => {
   try {
+    const pre = await refreshStorageDiagnostics();
+    if (pre && !pre.ok) {
+      $('#storage-msg').textContent = `⚠️ Aktivierung blockiert: ${pre.reason} ${pre.nextAction || ''}`.trim();
+      return;
+    }
+
     const raw = ($('#storage-network-path')?.value || '/mnt/muffi').trim();
     const d = await jpost('/api/storage', { mode: 'network', networkPath: raw });
     storageState = d;
@@ -210,28 +391,44 @@ $('#use-network-btn')?.addEventListener('click', async () => {
         ? `✅ Netzwerkordner ist jetzt aktiv.${converted ? ` (UNC → ${path})` : ''}${hint}`
         : `⚠️ Netzwerkordner nicht nutzbar, lokal bleibt aktiv.${converted ? ` (UNC → ${path})` : ''}${hint}`;
     }
+    if (!ok) {
+      const diag = await refreshStorageDiagnostics();
+      if (diag?.reason) {
+        $('#storage-msg').textContent += ` Grund: ${diag.reason}`;
+      }
+    }
     await refreshMediaAndFrame();
   } catch (e2) {
     $('#storage-msg').textContent = '❌ ' + e2.message;
   }
 });
 
-$('#save-network-path-btn')?.addEventListener('click', async () => {
+$('#remount-network-btn')?.addEventListener('click', async () => {
   try {
-    const raw = ($('#storage-network-path')?.value || '/mnt/muffi').trim();
-    const d = await jpost('/api/storage', { mode: 'auto', networkPath: raw });
-    storageState = d;
-    refreshStorageUi(storageState);
-    const path = d.network?.path || '/mnt/muffi';
-    const hint = d.normalizedNetworkPathHint ? ` ${d.normalizedNetworkPathHint}` : '';
-    if (d.shareSwitchRequired || d.blocked) {
-      $('#storage-msg').textContent = `⚠️ Das ist ein anderer Share. Pfad nicht übernommen. Bitte "Share wechseln (Admin)" nutzen.${hint}`;
-    } else {
-      $('#storage-msg').textContent = `✅ Netzwerkpfad gespeichert.${d.normalizedNetworkPathFrom ? ` (UNC → ${path})` : ''}${hint}`;
+    const pw = await askAdminPassword();
+    if (!pw) {
+      $('#storage-msg').textContent = 'ℹ️ Abgebrochen.';
+      return;
     }
+    const r = await jpost('/api/storage/remount', { password: pw });
+    await refreshServer();
+    const diag = await refreshStorageDiagnostics();
+    $('#storage-msg').textContent = `✅ ${r.message || 'Share neu verbunden'}` + (diag?.reason ? ` · ${diag.reason}` : '');
   } catch (e2) {
     $('#storage-msg').textContent = '❌ ' + e2.message;
+    await refreshStorageDiagnostics();
   }
+});
+
+$('#storage-diagnose-btn')?.addEventListener('click', async () => {
+  const d = await refreshStorageDiagnostics();
+  if (d?.reason) {
+    $('#storage-msg').textContent = `ℹ️ Diagnose: ${d.reason}`;
+  }
+});
+
+$('#save-network-path-btn')?.addEventListener('click', async () => {
+  await runStorageAutoConnect();
 });
 
 $('#share-switch-check-btn')?.addEventListener('click', async () => {
@@ -243,7 +440,8 @@ $('#share-switch-check-btn')?.addEventListener('click', async () => {
     }
     const d = await jpost('/api/storage/share-check', { networkPath: raw });
     if (!(d.shareSwitchRequired || d.blocked)) {
-      $('#storage-msg').textContent = `✅ Kein Share-Wechsel nötig. Du kannst direkt "Ordner speichern"/"Netzwerkordner nutzen" verwenden.${d.mappedPath ? ` Ziel: ${d.mappedPath}` : ''}`;
+      $('#storage-msg').textContent = `✅ Share-Wechsel nicht nötig. Nutze jetzt Schritt 2 oder 3.${d.mappedPath ? ` Ziel: ${d.mappedPath}` : ''}`;
+      await refreshStorageDiagnostics();
       return;
     }
 
@@ -256,7 +454,8 @@ $('#share-switch-check-btn')?.addEventListener('click', async () => {
     const r = await jpost('/api/storage/share-switch', { password: pw, networkPath: raw });
     storageState = r;
     refreshStorageUi(storageState);
-    $('#storage-msg').textContent = `✅ ${r.message || 'Share gewechselt'} – Netzwerkordner aktiv.`;
+    const diag = await refreshStorageDiagnostics();
+    $('#storage-msg').textContent = `✅ ${r.message || 'Share gewechselt'}${diag?.reason ? ` · ${diag.reason}` : ''}`;
     await refreshMediaAndFrame();
   } catch (e2) {
     $('#storage-msg').textContent = '❌ ' + e2.message;
@@ -296,4 +495,4 @@ $('#upload-form')?.addEventListener('submit', (e) => {
   xhr.send(file);
 });
 
-(async function init(){ await refreshServer(); await ledRefresh(); await wlanRefresh(); await refreshMediaAndFrame(); setInterval(refreshMediaAndFrame, 3500); setInterval(ledRefresh, 2500); setInterval(refreshServer, 10000); })();
+(async function init(){ await refreshServer(); const d = await refreshStorageDiagnostics(); setStorageAutoMsg(d?.ok ? '✅ Verbindung ist bereit. Du kannst direkt automatisch verbinden.' : 'Assistent bereit. Pfad eintragen und auf „Automatisch verbinden“ klicken.'); await ledRefresh(); await wlanRefresh(); await refreshMediaAndFrame(); setInterval(refreshMediaAndFrame, 3500); setInterval(ledRefresh, 2500); setInterval(refreshServer, 10000); })();

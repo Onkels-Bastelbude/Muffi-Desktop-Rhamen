@@ -56,15 +56,31 @@
               Der Server wandelt ihn automatisch in den Linux-Mountpfad um.
             </div>
             <div class="row">
-              <input id="storage-network-path" type="text" placeholder="/mnt/muffi oder \\BOOBIES\Bilder MUffi" />
-              <button type="button" id="save-network-path-btn">Ordner speichern</button>
+              <button type="button" id="admin-pw-clear-btn">Gespeichertes Passwort löschen</button>
             </div>
+            <div id="storage-auto-msg" class="msg">Assistent bereit. Pfad eintragen und auf „Automatisch verbinden“ klicken.</div>
             <div class="row">
-              <button type="button" id="use-network-btn">Netzwerkordner nutzen</button>
-              <button type="button" id="share-switch-check-btn">Netzwerkordner wechseln (Passwort erforderlich)</button>
+              <input id="storage-network-path" type="text" placeholder="/mnt/muffi oder \\BOOBIES\Bilder MUffi" />
+              <button type="button" id="save-network-path-btn">🚀 Automatisch verbinden</button>
+            </div>
+            <div class="row" id="storage-advanced-row" style="display:none;">
+              <button type="button" id="share-switch-check-btn">1) Share umstellen (Passwort erforderlich)</button>
+              <button type="button" id="remount-network-btn">2) Share neu verbinden (Passwort)</button>
+              <button type="button" id="use-network-btn">3) Netzwerkordner aktivieren</button>
+              <button type="button" id="storage-diagnose-btn">Diagnose prüfen</button>
             </div>
             <p class="mini">Status: <b id="storage-network-status">-</b></p>
             <p class="mini">Windows-UNC wird unterstützt. Anderer Share als der aktuelle Linux-Mount braucht Admin-Remount.</p>
+            <div id="storage-diagnose-log" class="diag70-card">
+              <div class="diag70-head">
+                <span class="diag70-title">DIAGNOSE KONSOLE</span>
+                <span id="diag70-status-badge" class="diag70-badge diag70-info">BEREIT</span>
+              </div>
+              <div id="diag70-reason" class="diag70-reason">Warte auf Prüfung …</div>
+              <div id="diag70-next" class="diag70-next">Pfad eintragen und „Automatisch verbinden“ starten.</div>
+              <div id="diag70-checks" class="diag70-checks"></div>
+              <div id="diag70-chips" class="diag70-chips"></div>
+            </div>
           </div>
         </div>
         <div id="storage-msg" class="msg"></div>
@@ -145,8 +161,9 @@
   <div id="admin-pw-modal" class="pw-modal hidden" role="dialog" aria-modal="true" aria-labelledby="admin-pw-title">
     <div class="pw-modal-card">
       <h3 id="admin-pw-title">Admin-Passwort</h3>
-      <p class="mini">Bitte Raspberry sudo Passwort eingeben (wird nicht gespeichert).</p>
+      <p class="mini">Bitte Raspberry sudo Passwort eingeben.</p>
       <input id="admin-pw-input" type="password" placeholder="Passwort" />
+      <label class="mini" style="display:block;margin-top:8px;"><input id="admin-pw-remember" type="checkbox" /> Passwort bis zum Browser-Neustart merken</label>
       <div class="row">
         <button type="button" id="admin-pw-cancel">Abbrechen</button>
         <button type="button" id="admin-pw-ok">Weiter</button>

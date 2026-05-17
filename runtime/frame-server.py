@@ -27,6 +27,7 @@ UI_V2_FILES = {
     "index.html": "text/html; charset=utf-8",
     "styles.css": "text/css; charset=utf-8",
     "script.js": "application/javascript; charset=utf-8",
+    "bg-loop.gif": "image/gif",
 }
 
 LED_COLORS = [
@@ -159,10 +160,31 @@ def get_network_mount_source_for_photo_dir():
     return ""
 
 
+def is_path_on_active_network_share(path):
+    mount_src = get_network_mount_source_for_photo_dir()
+    if not mount_src:
+        return False
+    try:
+        base = os.path.abspath(PHOTO_DIR).rstrip("/")
+        target = os.path.abspath(path or "")
+        return target == base or target.startswith(base + "/")
+    except Exception:
+        return False
+
+
 def parse_unc_path(value):
     raw = str(value or "").strip()
     if not raw:
         return None
+
+    # Windows-Laufwerkspfad ist kein UNC (z. B. C:\Users\...)
+    if re.match(r"^[A-Za-z]:([\\/]|$)", raw):
+        return None
+
+    # Für UNC erwarten wir ein führendes \\ oder //
+    if not (raw.startswith("\\\\") or raw.startswith("//")):
+        return None
+
     cleaned = raw.replace("/", "\\").strip("\\")
     parts = [p.strip() for p in cleaned.split("\\") if p.strip()]
     if len(parts) < 2:
@@ -183,6 +205,17 @@ def analyze_network_path_input(value):
             "hint": "",
             "shareSwitchRequired": False,
             "blocked": False,
+            "requestedUnc": None,
+            "mountSource": get_network_mount_source_for_photo_dir(),
+        }
+
+    if re.match(r"^[A-Za-z]:([\\/]|$)", raw):
+        return {
+            "mappedPath": None,
+            "normalizedFrom": raw,
+            "hint": "Windows-Laufwerkspfad erkannt. Bitte UNC (\\\\SERVER\\Share\\Ordner) oder Linux-Pfad (/mnt/...) verwenden.",
+            "shareSwitchRequired": False,
+            "blocked": True,
             "requestedUnc": None,
             "mountSource": get_network_mount_source_for_photo_dir(),
         }
@@ -219,16 +252,15 @@ def analyze_network_path_input(value):
                 "mountSource": mount_src,
             }
 
-        # Fallback ohne eindeutige Mount-Info
+        # Fallback ohne eindeutige Mount-Info:
+        # bei UNC immer Admin-Share-Wechsel verlangen, damit /etc/fstab korrekt gesetzt wird.
         req_rel = parse_unc_path(raw)
-        rel_path = "/".join((req_rel or {}).get("subparts") or [])
-        mapped = os.path.abspath(os.path.join(PHOTO_DIR, rel_path)) if rel_path else PHOTO_DIR
         return {
-            "mappedPath": mapped[:256],
+            "mappedPath": None,
             "normalizedFrom": raw,
-            "hint": "UNC erkannt. Ohne eindeutige Mount-Info wird auf /mnt/muffi abgebildet.",
-            "shareSwitchRequired": False,
-            "blocked": False,
+            "hint": "UNC erkannt, aber aktuell ist kein aktiver CIFS-Mount bekannt. Bitte 'Netzwerkordner wechseln (Passwort erforderlich)' ausführen.",
+            "shareSwitchRequired": True,
+            "blocked": True,
             "requestedUnc": req_rel,
             "mountSource": mount_src,
         }
@@ -252,6 +284,80 @@ def analyze_network_path_input(value):
         "blocked": False,
         "requestedUnc": None,
         "mountSource": mount_src,
+    }
+
+
+def get_storage_diagnostics():
+    st = get_storage_state()
+    network = st.get("network", {})
+    path = network.get("path") or PHOTO_DIR
+    mount_source = get_network_mount_source_for_photo_dir()
+    mount_ok = bool(mount_source)
+
+    checklist = [
+        {"key": "path_exists", "label": "Pfad vorhanden", "ok": bool(network.get("exists"))},
+        {"key": "is_mount", "label": "Als Netzwerk-Share gemountet", "ok": bool(mount_ok)},
+        {"key": "writable", "label": "Schreibbar", "ok": bool(network.get("writable"))},
+    ]
+
+    # Schnellcheck statt echtem Dateischreibtest, damit die Diagnose nie hängt
+    write_test = {
+        "ok": bool(network.get("exists") and network.get("writable")),
+        "message": "Schnellcheck über Schreibrechte",
+    }
+
+    checklist.append({"key": "write_test", "label": "Datei anlegen/löschen", "ok": bool(write_test.get("ok"))})
+
+    effective_ok = bool(
+        (mount_ok and network.get("writable") and write_test.get("ok"))
+        or (st.get("activeSource") == "network" and write_test.get("ok"))
+    )
+
+    if effective_ok:
+        reason = "Netzwerkordner ist bereit."
+        next_action = "Alles gut – du kannst direkt weiterarbeiten."
+    elif not network.get("exists"):
+        reason = "Netzwerkpfad existiert nicht."
+        next_action = "Pfad prüfen oder zuerst Share verbinden."
+    elif not mount_ok:
+        reason = "Pfad ist nicht als CIFS-Share gemountet."
+        next_action = "Button 'Share neu verbinden' oder 'Netzwerkordner wechseln (Passwort erforderlich)' nutzen."
+    elif not network.get("writable"):
+        reason = "Share ist gemountet, aber nicht schreibbar."
+        next_action = "CIFS-Rechte/credentials prüfen und neu verbinden."
+    elif not write_test.get("ok"):
+        reason = write_test.get("message") or "Schreibtest fehlgeschlagen."
+        next_action = "Share-Berechtigungen prüfen."
+    else:
+        reason = "Netzwerkordner ist bereit."
+        next_action = "Du kannst auf 'Netzwerkordner nutzen' umschalten."
+
+    mount_info = ""
+    if mount_source:
+        mount_info = f"{mount_source} -> {PHOTO_DIR}"
+
+    path_owner = ""
+    path_mode = ""
+    try:
+        st_mode = os.stat(path)
+        path_owner = f"uid:{st_mode.st_uid} gid:{st_mode.st_gid}"
+        path_mode = oct(st_mode.st_mode & 0o777)
+    except Exception:
+        pass
+
+    return {
+        "ok": effective_ok,
+        "reason": reason,
+        "nextAction": next_action,
+        "activeSource": st.get("activeSource"),
+        "checklist": checklist,
+        "networkPath": path,
+        "mountSource": mount_source,
+        "mountInfo": mount_info,
+        "pathOwner": path_owner,
+        "pathMode": path_mode,
+        "mode": st.get("mode"),
+        "updatedAt": time.time(),
     }
 
 
@@ -288,7 +394,7 @@ def get_storage_state():
         "network": {
             "path": network_path,
             "exists": safe_isdir(network_path),
-            "mount": safe_ismount(network_path),
+            "mount": bool(get_network_mount_source_for_photo_dir()),
             "writable": network_ready,
         },
         "local": {
@@ -526,10 +632,11 @@ def update_storage_config(patch: dict):
     normalized_hint = ""
     share_switch_required = False
     blocked = False
+    requested_mode = None
     if "mode" in patch:
         mode = str(patch.get("mode") or "auto").strip().lower()
         if mode in ("auto", "local", "network"):
-            current["mode"] = mode
+            requested_mode = mode
     if "networkPath" in patch:
         analysis = analyze_network_path_input(patch.get("networkPath"))
         normalized_from = analysis.get("normalizedFrom", "")
@@ -539,6 +646,10 @@ def update_storage_config(patch: dict):
         path = analysis.get("mappedPath")
         if path:
             current["networkPath"] = path
+    if requested_mode:
+        # Netzwerkmodus nur setzen, wenn Eingabe nicht geblockt wurde
+        if not (requested_mode == "network" and blocked):
+            current["mode"] = requested_mode
     if "localPath" in patch:
         path = str(patch.get("localPath") or "").strip()
         if path.startswith("/"):
@@ -1279,6 +1390,10 @@ class FrameHandler(BaseHTTPRequestHandler):
 
         if path == "api/storage":
             self.send_json(get_storage_config_snapshot())
+            return
+
+        if path == "api/storage/diagnostics":
+            self.send_json(get_storage_diagnostics())
             return
 
         if path == "api/upload-status":
