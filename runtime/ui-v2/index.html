@@ -1,0 +1,157 @@
+<!doctype html>
+<html lang="de">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>Muffi Rahmen · Control</title>
+  <link rel="stylesheet" href="/ui-v2/styles.css" />
+</head>
+<body>
+  <header class="topbar">
+    <div>
+      <h1>🪩 Muffi Rahmen</h1>
+      <p class="sub">Retro‑futuristische Steuerzentrale</p>
+    </div>
+    <span id="conn-pill" class="pill">Verbinde…</span>
+  </header>
+
+  <main class="layout">
+    <section class="panel preview" id="preview-panel">
+      <h2>Live‑Vorschau</h2>
+      <img id="frame-image" class="frame-img hidden" alt="Aktuelles Bild" />
+      <div id="frame-empty" class="frame-mock">Noch kein Frame-Status</div>
+      <div class="meta-line"><b id="frame-name">-</b></div>
+      <div class="meta-line" id="frame-meta">-</div>
+      <div class="row"><button id="delete-current-btn">🗑️ Bild löschen</button></div>
+      <div id="frame-msg" class="msg"></div>
+    </section>
+
+    <section class="panel workspace" id="workspace-panel">
+      <section class="view active" data-view="server">
+        <h2>Server</h2>
+        <ul>
+          <li>Foto-Ordner: <code>/mnt/muffi</code></li>
+          <li>Ordner vorhanden: <b id="st-folder">-</b></li>
+          <li>Mount aktiv: <b id="st-mount">-</b></li>
+          <li>Bilder gesamt: <b id="st-count">-</b></li>
+        </ul>
+        <p class="hint"><a href="/gallery">Galerie</a> · <a href="/classic">Classic UI</a></p>
+      </section>
+
+      <section class="view" data-view="medien">
+        <h2>Medien</h2>
+        <div class="storage-grid">
+          <div class="storage-card" id="storage-local-card">
+            <h3>Lokal (stabil)</h3>
+            <p class="hint">Empfohlen, wenn NAS/Netzwerk ausfällt.</p>
+            <p class="mini">Pfad: <code id="storage-local-path">-</code></p>
+            <p class="mini">Status: <b id="storage-local-status">-</b></p>
+            <button type="button" id="use-local-btn">Diesen Ordner nutzen</button>
+          </div>
+          <div class="storage-card" id="storage-network-card">
+            <h3>Netzwerkordner <button type="button" id="storage-help-toggle" class="help-btn" title="Pfadhilfe">?</button></h3>
+            <p class="hint">Für NAS/Share mit zentralen Bildern.</p>
+            <div id="storage-help" class="help-box hidden">
+              Für Windows-Nutzer: Du kannst deinen UNC-Pfad direkt einfügen, z. B. <code>\\BOOBIES\Bilder MUffi</code>.<br/>
+              Der Server wandelt ihn automatisch in den Linux-Mountpfad um.
+            </div>
+            <div class="row">
+              <input id="storage-network-path" type="text" placeholder="/mnt/muffi oder \\BOOBIES\Bilder MUffi" />
+              <button type="button" id="save-network-path-btn">Ordner speichern</button>
+            </div>
+            <div class="row">
+              <button type="button" id="use-network-btn">Netzwerkordner nutzen</button>
+              <button type="button" id="share-switch-check-btn">Netzwerkordner wechseln (Passwort erforderlich)</button>
+            </div>
+            <p class="mini">Status: <b id="storage-network-status">-</b></p>
+            <p class="mini">Windows-UNC wird unterstützt. Anderer Share als der aktuelle Linux-Mount braucht Admin-Remount.</p>
+          </div>
+        </div>
+        <div id="storage-msg" class="msg"></div>
+
+        <form id="upload-form" class="row">
+          <input id="upload-file" type="file" accept=".jpg,.jpeg,.png,image/jpeg,image/png" required />
+          <button type="submit">Upload</button>
+        </form>
+        <progress id="upload-progress" max="100" value="0"></progress>
+        <div id="upload-msg" class="msg"></div>
+        <div id="media-grid" class="media-grid"></div>
+      </section>
+
+      <section class="view" data-view="led">
+        <h2>LED</h2>
+        <div class="row"><label><input type="checkbox" id="led-on" /> LED an</label></div>
+        <div class="row"><label>Helligkeit</label><input id="led-brightness" type="range" min="0" max="255" /><span id="led-brightness-val">0</span></div>
+        <div class="row"><label>Farbe</label><input id="led-color" type="color" /><button id="led-next-color" type="button">Nächste</button></div>
+        <div class="row"><label>Reihenfolge</label>
+          <select id="led-order">
+            <option>GRB</option><option>RGB</option><option>BRG</option><option>BGR</option><option>RBG</option><option>GBR</option>
+          </select>
+        </div>
+        <div id="led-msg" class="msg"></div>
+      </section>
+
+      <section class="view" data-view="konfig">
+        <h2>Konfig</h2>
+        <form id="cfg-form" class="row">
+          <label>Intervall (Sek.)</label>
+          <input id="refresh-seconds" type="number" min="10" max="86400" required />
+          <button type="submit">Speichern</button>
+        </form>
+        <div id="cfg-msg" class="msg"></div>
+      </section>
+
+      <section class="view" data-view="motor"><h2>Motor</h2><p class="hint">Nächster Schritt: Winkel/Speed mit API verbinden.</p></section>
+      <section class="view" data-view="wlan">
+        <h2>WLAN</h2>
+        <form id="wlan-form" class="row">
+          <label>SSID</label><input id="wlan-ssid" type="text" placeholder="WLAN Name" />
+          <label>Passwort</label><input id="wlan-password" type="password" placeholder="WLAN Passwort" />
+          <label>ESP IP/Host</label><input id="wlan-esp-host" type="text" placeholder="z. B. 192.168.50.77" />
+          <label>Server URL</label><input id="wlan-server-base" type="text" placeholder="http://frame-server.local:8765" />
+          <button type="submit">Speichern</button>
+          <button type="button" id="wlan-test-btn">ESP testen</button>
+        </form>
+        <p class="hint">Hinweis: Werte werden serverseitig gespeichert. Für Firmware-Änderungen später OTA/Flash nutzen.</p>
+        <div id="wlan-msg" class="msg"></div>
+      </section>
+      <section class="view" data-view="firmware">
+        <h2>Firmware</h2>
+        <p class="hint">OTA/Flash Aktionen aus der Zentrale.</p>
+        <div class="row">
+          <button type="button" id="fw-ota-btn">OTA prüfen</button>
+          <button type="button" id="fw-usb-btn">USB-Flash Hinweise</button>
+        </div>
+        <div id="fw-msg" class="msg"></div>
+      </section>
+    </section>
+
+    <aside class="panel menu" id="menu-panel">
+      <button class="mobile-toggle" data-target="menu-list">☰ Menü</button>
+      <div class="menu-list" id="menu-list">
+        <button class="nav-btn active" data-view="server">Server</button>
+        <button class="nav-btn" data-view="medien">Medien</button>
+        <button class="nav-btn" data-view="led">LED</button>
+        <button class="nav-btn" data-view="konfig">Konfig</button>
+        <button class="nav-btn" data-view="motor">Motor</button>
+        <button class="nav-btn" data-view="wlan">WLAN</button>
+        <button class="nav-btn" data-view="firmware">Firmware</button>
+      </div>
+    </aside>
+  </main>
+
+  <script src="/ui-v2/script.js"></script>
+
+  <div id="admin-pw-modal" class="pw-modal hidden" role="dialog" aria-modal="true" aria-labelledby="admin-pw-title">
+    <div class="pw-modal-card">
+      <h3 id="admin-pw-title">Admin-Passwort</h3>
+      <p class="mini">Bitte Raspberry sudo Passwort eingeben (wird nicht gespeichert).</p>
+      <input id="admin-pw-input" type="password" placeholder="Passwort" />
+      <div class="row">
+        <button type="button" id="admin-pw-cancel">Abbrechen</button>
+        <button type="button" id="admin-pw-ok">Weiter</button>
+      </div>
+    </div>
+  </div>
+</body>
+</html>

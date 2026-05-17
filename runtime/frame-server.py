@@ -8,9 +8,10 @@ from http.server import ThreadingHTTPServer, BaseHTTPRequestHandler
 from PIL import Image, ImageOps
 from urllib.parse import unquote, quote, parse_qs, urlparse
 from html import escape
-import os, io, json, time, threading, re
+import os, io, json, time, threading, re, socket, subprocess
 
 PHOTO_DIR  = "/mnt/muffi"
+FALLBACK_PHOTO_DIR = "/home/maika/.openclaw/workspace/projects/muffi-bilderrahmen/runtime/photos"
 PORT       = 8765
 DISPLAY_W  = 172   # Hochformat Breite
 DISPLAY_H  = 320   # Hochformat Höhe
@@ -20,6 +21,13 @@ DEFAULT_REFRESH_MS = 5 * 60 * 1000
 MIN_REFRESH_MS = 10 * 1000
 MAX_REFRESH_MS = 24 * 60 * 60 * 1000
 MAX_UPLOAD_BYTES = 30 * 1024 * 1024
+RUNTIME_DIR = os.path.dirname(os.path.realpath(__file__))
+UI_V2_DIR = os.path.join(RUNTIME_DIR, "ui-v2")
+UI_V2_FILES = {
+    "index.html": "text/html; charset=utf-8",
+    "styles.css": "text/css; charset=utf-8",
+    "script.js": "application/javascript; charset=utf-8",
+}
 
 LED_COLORS = [
     {"name": "Rot", "hex": "#FF0000"},
@@ -55,6 +63,246 @@ FRAME_STATE = {
 }
 
 LED_LOCK = threading.Lock()
+
+
+def safe_isdir(path):
+    try:
+        return os.path.isdir(path)
+    except OSError:
+        return False
+
+
+def safe_ismount(path):
+    try:
+        return os.path.ismount(path)
+    except OSError:
+        return False
+
+
+def ensure_local_photo_dir():
+    os.makedirs(FALLBACK_PHOTO_DIR, exist_ok=True)
+    return FALLBACK_PHOTO_DIR
+
+
+def is_writable_dir(path):
+    return safe_isdir(path) and os.access(path, os.W_OK | os.X_OK)
+
+
+def sanitize_storage_config(raw):
+    raw = raw or {}
+    mode = str(raw.get("mode", "auto") or "auto").strip().lower()
+    if mode not in ("auto", "local", "network"):
+        mode = "auto"
+
+    network_path = str(raw.get("networkPath", PHOTO_DIR) or PHOTO_DIR).strip()
+    if not network_path.startswith("/"):
+        network_path = PHOTO_DIR
+    network_path = os.path.abspath(network_path)[:256]
+
+    local_path = str(raw.get("localPath", FALLBACK_PHOTO_DIR) or FALLBACK_PHOTO_DIR).strip()
+    if not local_path.startswith("/"):
+        local_path = FALLBACK_PHOTO_DIR
+    local_path = os.path.abspath(local_path)[:256]
+
+    return {
+        "mode": mode,
+        "networkPath": network_path,
+        "localPath": local_path,
+        "updatedAt": float(raw.get("updatedAt") or 0.0),
+    }
+
+
+def normalize_network_path_input(value):
+    raw = str(value or "").strip()
+    if not raw:
+        return PHOTO_DIR, "", ""
+
+    # Windows UNC oder Backslash-Eingaben automatisch auf Linux-Mountpfad mappen.
+    # Beispiel: \\BOOBIES\Share\Ordner A\2012 -> /mnt/muffi/Ordner A/2012
+    if raw.startswith("\\\\") or "\\" in raw or (raw.startswith("//") and not raw.startswith("/mnt/")):
+        cleaned = raw.replace("/", "\\").strip("\\")
+        parts = [p.strip() for p in cleaned.split("\\") if p.strip()]
+        # UNC-Struktur: \\server\share\optional\sub\path
+        rel_parts = parts[2:] if len(parts) >= 3 else []
+        rel_path = "/".join(rel_parts)
+        hint = "UNC erkannt: Server/Share wird auf Linux nicht direkt genutzt; aktiv ist nur der gemountete Pfad unter /mnt/muffi."
+        if rel_path:
+            mapped = os.path.abspath(os.path.join(PHOTO_DIR, rel_path))
+            return mapped[:256], raw, hint
+        return PHOTO_DIR, raw, hint
+
+    if raw.startswith("/"):
+        return os.path.abspath(raw)[:256], "", ""
+
+    return PHOTO_DIR, raw, ""
+
+
+def _decode_mount_field(s):
+    # /proc/*/mounts escaped fields
+    return str(s or "").replace("\\040", " ").replace("\\011", "\t").replace("\\012", "\n").replace("\\134", "\\")
+
+
+def get_network_mount_source_for_photo_dir():
+    try:
+        with open("/proc/self/mounts", "r", encoding="utf-8", errors="ignore") as f:
+            for line in f:
+                parts = line.strip().split()
+                if len(parts) < 3:
+                    continue
+                src = _decode_mount_field(parts[0])
+                mnt = _decode_mount_field(parts[1])
+                fstype = parts[2]
+                if mnt == PHOTO_DIR and fstype.lower() == "cifs":
+                    return src
+    except Exception:
+        pass
+    return ""
+
+
+def parse_unc_path(value):
+    raw = str(value or "").strip()
+    if not raw:
+        return None
+    cleaned = raw.replace("/", "\\").strip("\\")
+    parts = [p.strip() for p in cleaned.split("\\") if p.strip()]
+    if len(parts) < 2:
+        return None
+    return {
+        "server": parts[0],
+        "share": parts[1],
+        "subparts": parts[2:] if len(parts) > 2 else [],
+    }
+
+
+def analyze_network_path_input(value):
+    raw = str(value or "").strip()
+    if not raw:
+        return {
+            "mappedPath": PHOTO_DIR,
+            "normalizedFrom": "",
+            "hint": "",
+            "shareSwitchRequired": False,
+            "blocked": False,
+            "requestedUnc": None,
+            "mountSource": get_network_mount_source_for_photo_dir(),
+        }
+
+    is_unc = raw.startswith("\\\\") or "\\" in raw or (raw.startswith("//") and not raw.startswith("/mnt/"))
+    mount_src = get_network_mount_source_for_photo_dir()
+
+    if is_unc:
+        req = parse_unc_path(raw)
+        mount_req = parse_unc_path(mount_src) if mount_src.startswith("//") or mount_src.startswith("\\\\") else None
+
+        if req and mount_req:
+            same = req["server"].lower() == mount_req["server"].lower() and req["share"].lower() == mount_req["share"].lower()
+            if not same:
+                return {
+                    "mappedPath": None,
+                    "normalizedFrom": raw,
+                    "hint": f"Anderer Share erkannt ({req['server']}/{req['share']}). Aktueller Linux-Mount ist {mount_req['server']}/{mount_req['share']}. Für Share-Wechsel ist ein Admin-Remount nötig.",
+                    "shareSwitchRequired": True,
+                    "blocked": True,
+                    "requestedUnc": req,
+                    "mountSource": mount_src,
+                }
+
+            rel_path = "/".join(req.get("subparts") or [])
+            mapped = os.path.abspath(os.path.join(PHOTO_DIR, rel_path)) if rel_path else PHOTO_DIR
+            return {
+                "mappedPath": mapped[:256],
+                "normalizedFrom": raw,
+                "hint": "UNC erkannt und auf aktiven Linux-Mount abgebildet.",
+                "shareSwitchRequired": False,
+                "blocked": False,
+                "requestedUnc": req,
+                "mountSource": mount_src,
+            }
+
+        # Fallback ohne eindeutige Mount-Info
+        req_rel = parse_unc_path(raw)
+        rel_path = "/".join((req_rel or {}).get("subparts") or [])
+        mapped = os.path.abspath(os.path.join(PHOTO_DIR, rel_path)) if rel_path else PHOTO_DIR
+        return {
+            "mappedPath": mapped[:256],
+            "normalizedFrom": raw,
+            "hint": "UNC erkannt. Ohne eindeutige Mount-Info wird auf /mnt/muffi abgebildet.",
+            "shareSwitchRequired": False,
+            "blocked": False,
+            "requestedUnc": req_rel,
+            "mountSource": mount_src,
+        }
+
+    if raw.startswith("/"):
+        return {
+            "mappedPath": os.path.abspath(raw)[:256],
+            "normalizedFrom": "",
+            "hint": "",
+            "shareSwitchRequired": False,
+            "blocked": False,
+            "requestedUnc": None,
+            "mountSource": mount_src,
+        }
+
+    return {
+        "mappedPath": PHOTO_DIR,
+        "normalizedFrom": raw,
+        "hint": "Ungültiges Format; verwende Linux-Pfad oder UNC.",
+        "shareSwitchRequired": False,
+        "blocked": False,
+        "requestedUnc": None,
+        "mountSource": mount_src,
+    }
+
+
+def get_storage_state():
+    storage = sanitize_storage_config((SERVER_CONFIG or {}).get("storage", {}))
+    network_path = storage.get("networkPath", PHOTO_DIR)
+    local_path = storage.get("localPath", FALLBACK_PHOTO_DIR)
+    mode = storage.get("mode", "auto")
+
+    # lokales Ziel immer verfügbar machen
+    os.makedirs(local_path, exist_ok=True)
+
+    network_ready = is_writable_dir(network_path)
+    local_ready = is_writable_dir(local_path)
+
+    if mode == "network" and network_ready:
+        active_path = network_path
+        active_source = "network"
+    elif mode == "local":
+        active_path = local_path
+        active_source = "local"
+    else:
+        if network_ready:
+            active_path = network_path
+            active_source = "network"
+        else:
+            active_path = local_path
+            active_source = "local"
+
+    return {
+        "mode": mode,
+        "activePath": active_path,
+        "activeSource": active_source,
+        "network": {
+            "path": network_path,
+            "exists": safe_isdir(network_path),
+            "mount": safe_ismount(network_path),
+            "writable": network_ready,
+        },
+        "local": {
+            "path": local_path,
+            "exists": safe_isdir(local_path),
+            "mount": safe_ismount(local_path),
+            "writable": local_ready,
+        },
+        "updatedAt": float(storage.get("updatedAt") or 0.0),
+    }
+
+
+def get_photo_dir():
+    return get_storage_state().get("activePath", ensure_local_photo_dir())
 
 
 def clamp_refresh_ms(value):
@@ -119,16 +367,35 @@ def sanitize_led_config(raw):
     }
 
 
+def sanitize_wlan_config(raw):
+    raw = raw or {}
+    ssid = str(raw.get("ssid", "") or "").strip()[:128]
+    password = str(raw.get("password", "") or "")[:128]
+    esp_host = str(raw.get("espHost", "") or "").strip()[:128]
+    server_base = str(raw.get("serverBase", "http://frame-server.local:8765") or "").strip()[:256]
+    return {
+        "ssid": ssid,
+        "password": password,
+        "espHost": esp_host,
+        "serverBase": server_base,
+        "updatedAt": float(raw.get("updatedAt") or 0.0),
+    }
+
+
 def load_config():
     cfg = {
         "refreshMs": DEFAULT_REFRESH_MS,
         "led": sanitize_led_config({}),
+        "wlan": sanitize_wlan_config({}),
+        "storage": sanitize_storage_config({}),
     }
     try:
         with open(CONFIG_PATH, "r", encoding="utf-8") as f:
             disk = json.load(f)
             cfg["refreshMs"] = clamp_refresh_ms(disk.get("refreshMs", DEFAULT_REFRESH_MS))
             cfg["led"] = sanitize_led_config(disk.get("led", {}))
+            cfg["wlan"] = sanitize_wlan_config(disk.get("wlan", {}))
+            cfg["storage"] = sanitize_storage_config(disk.get("storage", {}))
     except:
         pass
     return cfg
@@ -139,6 +406,8 @@ def save_config(cfg):
     payload = {
         "refreshMs": clamp_refresh_ms(cfg.get("refreshMs", DEFAULT_REFRESH_MS)),
         "led": sanitize_led_config(cfg.get("led", {})),
+        "wlan": sanitize_wlan_config(cfg.get("wlan", {})),
+        "storage": sanitize_storage_config(cfg.get("storage", {})),
     }
     with open(CONFIG_PATH, "w", encoding="utf-8") as f:
         json.dump(payload, f, ensure_ascii=False, indent=2)
@@ -178,7 +447,7 @@ def update_frame_state(filename="", orientation="", index=-1, count=0, source=""
         FRAME_STATE["count"] = int(count) if str(count).strip() != "" else 0
         FRAME_STATE["updatedAt"] = time.time()
         FRAME_STATE["source"] = source or ""
-        photo_root = os.path.abspath(PHOTO_DIR)
+        photo_root = os.path.abspath(get_photo_dir())
         if filename:
             candidate = os.path.abspath(os.path.join(photo_root, filename))
             FRAME_STATE["exists"] = candidate.startswith(photo_root + os.sep) and os.path.isfile(candidate)
@@ -224,6 +493,203 @@ def update_led_config(patch: dict):
         return out
 
 
+def get_wlan_config_snapshot(mask_password=False):
+    wlan = sanitize_wlan_config((SERVER_CONFIG or {}).get("wlan", {}))
+    if mask_password and wlan.get("password"):
+        wlan["password"] = "********"
+    return wlan
+
+
+def update_wlan_config(patch: dict):
+    current = sanitize_wlan_config((SERVER_CONFIG or {}).get("wlan", {}))
+    if "ssid" in patch:
+        current["ssid"] = str(patch.get("ssid") or "").strip()[:128]
+    if "password" in patch:
+        current["password"] = str(patch.get("password") or "")[:128]
+    if "espHost" in patch:
+        current["espHost"] = str(patch.get("espHost") or "").strip()[:128]
+    if "serverBase" in patch:
+        current["serverBase"] = str(patch.get("serverBase") or "").strip()[:256]
+    current["updatedAt"] = time.time()
+    SERVER_CONFIG["wlan"] = current
+    save_config(SERVER_CONFIG)
+    return dict(current)
+
+
+def get_storage_config_snapshot():
+    return get_storage_state()
+
+
+def update_storage_config(patch: dict):
+    current = sanitize_storage_config((SERVER_CONFIG or {}).get("storage", {}))
+    normalized_from = ""
+    normalized_hint = ""
+    share_switch_required = False
+    blocked = False
+    if "mode" in patch:
+        mode = str(patch.get("mode") or "auto").strip().lower()
+        if mode in ("auto", "local", "network"):
+            current["mode"] = mode
+    if "networkPath" in patch:
+        analysis = analyze_network_path_input(patch.get("networkPath"))
+        normalized_from = analysis.get("normalizedFrom", "")
+        normalized_hint = analysis.get("hint", "")
+        share_switch_required = bool(analysis.get("shareSwitchRequired"))
+        blocked = bool(analysis.get("blocked"))
+        path = analysis.get("mappedPath")
+        if path:
+            current["networkPath"] = path
+    if "localPath" in patch:
+        path = str(patch.get("localPath") or "").strip()
+        if path.startswith("/"):
+            current["localPath"] = os.path.abspath(path)[:256]
+
+    current["updatedAt"] = time.time()
+
+    SERVER_CONFIG["storage"] = current
+    save_config(SERVER_CONFIG)
+    out = get_storage_state()
+    out["normalizedNetworkPathFrom"] = normalized_from
+    out["normalizedNetworkPathHint"] = normalized_hint
+    out["shareSwitchRequired"] = share_switch_required
+    out["blocked"] = blocked
+    return out
+
+
+def test_esp_host(host, port=80, timeout_seconds=1.5):
+    host = str(host or "").strip()
+    if not host:
+        return {"ok": False, "error": "espHost fehlt"}
+
+    # 1) ICMP Ping als Basis-Erreichbarkeit
+    try:
+        ping = subprocess.run(
+            ["ping", "-c", "1", "-W", "1", host],
+            stdout=subprocess.DEVNULL,
+            stderr=subprocess.DEVNULL,
+            check=False,
+        )
+        if ping.returncode == 0:
+            return {"ok": True, "mode": "ping", "message": "ESP erreichbar (Ping)"}
+    except Exception:
+        pass
+
+    # 2) Fallback TCP-Test
+    try:
+        with socket.create_connection((host, int(port)), timeout=timeout_seconds):
+            return {"ok": True, "mode": "tcp", "message": f"ESP Port {int(port)} erreichbar"}
+    except Exception as e:
+        return {"ok": False, "error": str(e)}
+
+
+def remount_network_share(password: str):
+    pw = str(password or "")
+    if not pw:
+        return {"ok": False, "error": "Passwort fehlt"}
+
+    cmd = [
+        "sudo", "-S", "-p", "",
+        "sh", "-lc",
+        "systemctl reset-failed mnt-muffi.mount mnt-muffi.automount >/dev/null 2>&1 || true; "
+        "umount /mnt/muffi >/dev/null 2>&1 || true; "
+        "mount /mnt/muffi",
+    ]
+
+    try:
+        proc = subprocess.run(
+            cmd,
+            input=pw + "\n",
+            text=True,
+            capture_output=True,
+            timeout=25,
+            check=False,
+        )
+    except Exception as e:
+        return {"ok": False, "error": str(e)}
+
+    if proc.returncode != 0:
+        msg = (proc.stderr or proc.stdout or "Remount fehlgeschlagen").strip()
+        return {"ok": False, "error": msg[:300]}
+
+    return {"ok": True, "message": "Share neu verbunden"}
+
+
+def switch_network_share(password: str, network_path_value):
+    pw = str(password or "")
+    if not pw:
+        return {"ok": False, "error": "Passwort fehlt"}
+
+    req = parse_unc_path(network_path_value)
+    if not req:
+        return {"ok": False, "error": "Bitte einen UNC-Pfad angeben (z. B. \\\\SERVER\\Share\\Ordner)"}
+
+    target_source = f"//{req['server']}/{req['share']}"
+    target_source_fstab = target_source.replace(" ", "\\040")
+
+    fstab_script = r'''
+import sys, os, shutil, datetime
+
+target = sys.argv[1]
+path = '/etc/fstab'
+with open(path, 'r', encoding='utf-8', errors='ignore') as f:
+    lines = f.readlines()
+
+changed = False
+out = []
+for line in lines:
+    if line.lstrip().startswith('#') or not line.strip():
+        out.append(line)
+        continue
+
+    parts = line.split()
+    if len(parts) >= 2 and parts[1] == '/mnt/muffi':
+        parts[0] = target
+        line = '\t'.join(parts) + '\n'
+        changed = True
+    out.append(line)
+
+if not changed:
+    raise SystemExit('Kein /mnt/muffi Eintrag in /etc/fstab gefunden')
+
+backup = f"{path}.bak-{datetime.datetime.now().strftime('%Y%m%d-%H%M%S')}"
+shutil.copy2(path, backup)
+with open(path, 'w', encoding='utf-8') as f:
+    f.writelines(out)
+print(backup)
+'''
+
+    shell_cmd = (
+        "python3 - <<'PY' \"$1\"\n" + fstab_script + "\nPY\n"
+        "systemctl daemon-reload >/dev/null 2>&1 || true; "
+        "systemctl reset-failed mnt-muffi.mount mnt-muffi.automount >/dev/null 2>&1 || true; "
+        "umount -l /mnt/muffi >/dev/null 2>&1 || true; "
+        "mount /mnt/muffi"
+    )
+
+    cmd = ["sudo", "-S", "-p", "", "sh", "-lc", shell_cmd, "--", target_source_fstab]
+    try:
+        proc = subprocess.run(
+            cmd,
+            input=pw + "\n",
+            text=True,
+            capture_output=True,
+            timeout=45,
+            check=False,
+        )
+    except Exception as e:
+        return {"ok": False, "error": str(e)}
+
+    if proc.returncode != 0:
+        # Falls bereits korrekt gemountet, als Erfolg behandeln.
+        current = get_network_mount_source_for_photo_dir()
+        if current and current.lower() == target_source.lower():
+            return {"ok": True, "message": f"Share bereits aktiv: {target_source}", "targetSource": target_source}
+        msg = (proc.stderr or proc.stdout or "Share-Wechsel fehlgeschlagen").strip()
+        return {"ok": False, "error": msg[:500]}
+
+    return {"ok": True, "message": f"Share gewechselt auf {target_source}", "targetSource": target_source}
+
+
 def get_orientation(filepath):
     """Gibt 'landscape' oder 'portrait' zurück (nach EXIF-Korrektur)"""
     try:
@@ -263,13 +729,17 @@ def resize_image(filepath, orientation):
 
 def list_photos():
     """Liefert Metadaten für alle Bilder im PHOTO_DIR."""
-    if not os.path.isdir(PHOTO_DIR):
+    photo_dir = get_photo_dir()
+    if not safe_isdir(photo_dir):
         return []
 
-    files = sorted([
-        f for f in os.listdir(PHOTO_DIR)
-        if f.lower().endswith((".jpg", ".jpeg", ".png"))
-    ])
+    try:
+        files = sorted([
+            f for f in os.listdir(photo_dir)
+            if f.lower().endswith((".jpg", ".jpeg", ".png"))
+        ])
+    except OSError:
+        return []
 
     # Cache aufräumen (gelöschte Dateien entfernen)
     existing = set(files)
@@ -281,7 +751,7 @@ def list_photos():
     # Pro Request nur begrenzt neue Orientierungen scannen, damit /list schnell bleibt
     scan_budget = 8
     for f in files:
-        fp = os.path.join(PHOTO_DIR, f)
+        fp = os.path.join(photo_dir, f)
         ori = ORIENTATION_CACHE.get(f)
         if ori is None:
             if scan_budget > 0:
@@ -328,6 +798,26 @@ class FrameHandler(BaseHTTPRequestHandler):
         self.end_headers()
         self.wfile.write(out)
 
+    def send_ui_v2_file(self, filename):
+        content_type = UI_V2_FILES.get(filename)
+        if not content_type:
+            self.send_error(404, "Not found")
+            return
+
+        filepath = os.path.join(UI_V2_DIR, filename)
+        if not os.path.isfile(filepath):
+            self.send_error(404, "Not found")
+            return
+
+        with open(filepath, "rb") as f:
+            data = f.read()
+
+        self.send_response(200)
+        self.send_header("Content-Type", content_type)
+        self.send_header("Content-Length", str(len(data)))
+        self.end_headers()
+        self.wfile.write(data)
+
     def render_dashboard(self, file_info):
         frame = get_frame_state_snapshot()
         led = get_led_config_snapshot()
@@ -349,8 +839,10 @@ class FrameHandler(BaseHTTPRequestHandler):
                 f'<div id="delete-msg"></div>'
             )
 
-        photo_dir_ok = os.path.isdir(PHOTO_DIR)
-        mount_ok = os.path.ismount(PHOTO_DIR)
+        active_photo_dir = get_photo_dir()
+        photo_dir_ok = safe_isdir(active_photo_dir)
+        mount_ok = safe_ismount(PHOTO_DIR)
+        storage_mode = "netzwerk" if active_photo_dir == PHOTO_DIR else "lokal (fallback)"
         refresh_seconds = SERVER_CONFIG.get("refreshMs", DEFAULT_REFRESH_MS) // 1000
 
         return f"""<!doctype html>
@@ -381,7 +873,8 @@ class FrameHandler(BaseHTTPRequestHandler):
 
   <div class="card">
     <h2>Status</h2>
-    <p>Foto-Ordner: <code>{escape(PHOTO_DIR)}</code></p>
+    <p>Foto-Ordner (aktiv): <code>{escape(active_photo_dir)}</code> <span class="mini">[{escape(storage_mode)}]</span></p>
+    <p>Netzwerk-Ordner (konfiguriert): <code>{escape(PHOTO_DIR)}</code></p>
     <p>Ordner vorhanden: <span class="{'ok' if photo_dir_ok else 'bad'}">{'ja' if photo_dir_ok else 'nein'}</span></p>
     <p>Mount aktiv: <span class="{'ok' if mount_ok else 'bad'}">{'ja' if mount_ok else 'nein'}</span></p>
     <p>Bilder gesamt: <b>{len(file_info)}</b></p>
@@ -738,10 +1231,23 @@ class FrameHandler(BaseHTTPRequestHandler):
         parsed = urlparse(self.path)
         raw_path = parsed.path
         path = unquote(raw_path.strip("/"))
+
+        # UI V2 ist jetzt Standard-Startseite
+        if path in ("", "index.html"):
+            self.send_ui_v2_file("index.html")
+            return
+
+        if path.startswith("ui-v2/"):
+            filename = path[len("ui-v2/"):].strip()
+            if filename == "":
+                filename = "index.html"
+            self.send_ui_v2_file(filename)
+            return
+
         file_info = list_photos()
 
-        # Dashboard + Galerie
-        if path in ("", "index.html"):
+        # Klassisches Dashboard weiter verfügbar
+        if path in ("classic", "classic.html"):
             self.send_html(self.render_dashboard(file_info))
             return
 
@@ -758,6 +1264,23 @@ class FrameHandler(BaseHTTPRequestHandler):
             })
             return
 
+        if path == "api/status":
+            storage = get_storage_state()
+            self.send_json({
+                "photoDir": storage.get("network", {}).get("path", PHOTO_DIR),
+                "activePhotoDir": storage.get("activePath", get_photo_dir()),
+                "photoDirExists": safe_isdir(storage.get("activePath", get_photo_dir())),
+                "mountActive": bool(storage.get("network", {}).get("mount")),
+                "usingFallback": storage.get("activeSource") != "network",
+                "storage": storage,
+                "count": len(file_info),
+            })
+            return
+
+        if path == "api/storage":
+            self.send_json(get_storage_config_snapshot())
+            return
+
         if path == "api/upload-status":
             self.send_json(get_upload_status_snapshot())
             return
@@ -768,6 +1291,10 @@ class FrameHandler(BaseHTTPRequestHandler):
 
         if path == "api/led":
             self.send_json(get_led_config_snapshot())
+            return
+
+        if path == "api/wlan":
+            self.send_json(get_wlan_config_snapshot(mask_password=False))
             return
 
         # Dateiliste: /list bleibt schlank für ESP, /api/list ist voll für Web/Tools
@@ -791,7 +1318,7 @@ class FrameHandler(BaseHTTPRequestHandler):
             return
 
         # Einzelnes Bild (automatisch skaliert)
-        photo_root = os.path.abspath(PHOTO_DIR)
+        photo_root = os.path.abspath(get_photo_dir())
         filepath = os.path.abspath(os.path.join(photo_root, path))
 
         # path traversal blocken
@@ -906,6 +1433,131 @@ class FrameHandler(BaseHTTPRequestHandler):
             self.send_json({"ok": True, **out})
             return
 
+        if path == "api/storage":
+            length = int(self.headers.get("Content-Length", "0") or "0")
+            body = self.rfile.read(length) if length > 0 else b""
+
+            try:
+                payload = json.loads(body.decode("utf-8") or "{}")
+            except Exception as e:
+                self.send_json({"error": f"Ungültige Daten: {e}"}, status=400)
+                return
+
+            try:
+                out = update_storage_config(payload or {})
+            except Exception as e:
+                self.send_json({"error": f"Storage speichern fehlgeschlagen: {e}"}, status=500)
+                return
+
+            self.send_json({"ok": True, **out})
+            return
+
+        if path == "api/storage/share-check":
+            length = int(self.headers.get("Content-Length", "0") or "0")
+            body = self.rfile.read(length) if length > 0 else b""
+
+            try:
+                payload = json.loads(body.decode("utf-8") or "{}")
+            except Exception as e:
+                self.send_json({"error": f"Ungültige Daten: {e}"}, status=400)
+                return
+
+            analysis = analyze_network_path_input((payload or {}).get("networkPath"))
+            mapped = analysis.get("mappedPath")
+            self.send_json({
+                "ok": not bool(analysis.get("blocked")),
+                "blocked": bool(analysis.get("blocked")),
+                "shareSwitchRequired": bool(analysis.get("shareSwitchRequired")),
+                "mappedPath": mapped,
+                "normalizedFrom": analysis.get("normalizedFrom", ""),
+                "hint": analysis.get("hint", ""),
+                "mountSource": analysis.get("mountSource", ""),
+            })
+            return
+
+        if path == "api/storage/remount":
+            length = int(self.headers.get("Content-Length", "0") or "0")
+            body = self.rfile.read(length) if length > 0 else b""
+
+            try:
+                payload = json.loads(body.decode("utf-8") or "{}")
+            except Exception as e:
+                self.send_json({"error": f"Ungültige Daten: {e}"}, status=400)
+                return
+
+            result = remount_network_share((payload or {}).get("password"))
+            if not result.get("ok"):
+                self.send_json({"ok": False, "error": result.get("error", "Remount fehlgeschlagen")}, status=403)
+                return
+
+            self.send_json({"ok": True, "message": result.get("message", "ok")})
+            return
+
+        if path == "api/storage/share-switch":
+            length = int(self.headers.get("Content-Length", "0") or "0")
+            body = self.rfile.read(length) if length > 0 else b""
+
+            try:
+                payload = json.loads(body.decode("utf-8") or "{}")
+            except Exception as e:
+                self.send_json({"error": f"Ungültige Daten: {e}"}, status=400)
+                return
+
+            raw_path = str((payload or {}).get("networkPath") or "")
+            result = switch_network_share((payload or {}).get("password"), raw_path)
+            if not result.get("ok"):
+                self.send_json({"ok": False, "error": result.get("error", "Share-Wechsel fehlgeschlagen")}, status=403)
+                return
+
+            # Nach Share-Wechsel gewünschten Pfad erneut anwenden
+            try:
+                out = update_storage_config({"mode": "network", "networkPath": raw_path})
+            except Exception:
+                out = get_storage_state()
+
+            self.send_json({"ok": True, "message": result.get("message", "ok"), **out})
+            return
+
+        if path == "api/wlan":
+            length = int(self.headers.get("Content-Length", "0") or "0")
+            body = self.rfile.read(length) if length > 0 else b""
+
+            try:
+                payload = json.loads(body.decode("utf-8") or "{}")
+            except Exception as e:
+                self.send_json({"error": f"Ungültige Daten: {e}"}, status=400)
+                return
+
+            try:
+                out = update_wlan_config(payload or {})
+            except Exception as e:
+                self.send_json({"error": f"WLAN speichern fehlgeschlagen: {e}"}, status=500)
+                return
+
+            self.send_json({"ok": True, **out})
+            return
+
+        if path == "api/wlan/test":
+            length = int(self.headers.get("Content-Length", "0") or "0")
+            body = self.rfile.read(length) if length > 0 else b""
+
+            host = ""
+            try:
+                payload = json.loads(body.decode("utf-8") or "{}")
+                host = str(payload.get("espHost") or "").strip()
+            except Exception:
+                pass
+
+            if not host:
+                host = get_wlan_config_snapshot(mask_password=False).get("espHost", "")
+
+            result = test_esp_host(host, port=80, timeout_seconds=1.8)
+            if result.get("ok"):
+                self.send_json({"ok": True, "espHost": host, "mode": result.get("mode", "unknown"), "message": result.get("message", "ESP erreichbar")})
+            else:
+                self.send_json({"ok": False, "espHost": host, "error": result.get("error", "nicht erreichbar")}, status=502)
+            return
+
         if path == "api/delete":
             length = int(self.headers.get("Content-Length", "0") or "0")
             body = self.rfile.read(length) if length > 0 else b""
@@ -921,7 +1573,7 @@ class FrameHandler(BaseHTTPRequestHandler):
                 self.send_json({"error": "Dateiname fehlt"}, status=400)
                 return
 
-            photo_root = os.path.abspath(PHOTO_DIR)
+            photo_root = os.path.abspath(get_photo_dir())
             target = os.path.abspath(os.path.join(photo_root, name))
             if not target.startswith(photo_root + os.sep):
                 self.send_json({"error": "Ungültiger Dateiname"}, status=400)
@@ -943,9 +1595,7 @@ class FrameHandler(BaseHTTPRequestHandler):
             return
 
         if path == "api/upload":
-            if not os.path.isdir(PHOTO_DIR):
-                self.send_json({"error": "Foto-Ordner nicht verfügbar"}, status=503)
-                return
+            photo_root = os.path.abspath(get_photo_dir())
 
             params = parse_qs(parsed.query or "")
             requested_name = params.get("name", [""])[0]
@@ -971,7 +1621,6 @@ class FrameHandler(BaseHTTPRequestHandler):
                 self.send_json({"error": f"Datei zu groß (max {MAX_UPLOAD_BYTES // (1024*1024)} MB)"}, status=413)
                 return
 
-            photo_root = os.path.abspath(PHOTO_DIR)
             final_path = os.path.abspath(os.path.join(photo_root, filename))
             if not final_path.startswith(photo_root + os.sep):
                 self.send_json({"error": "Ungültiger Dateiname"}, status=400)

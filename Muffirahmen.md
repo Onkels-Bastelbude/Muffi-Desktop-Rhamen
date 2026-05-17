@@ -1,19 +1,19 @@
 # Muffirahmen – Projektstatus
 
-Stand: 2026-05-16
+Stand: 2026-05-17
 
 ## Heute erledigt (letzter bestätigter Stand)
-- Upload + Löschen stabilisiert
-- Dashboard zeigt echten Frame-Status vom ESP
-- API `GET/POST /api/frame-state` aktiv
-- LED-Steuerung finalisiert (inkl. GRB-Bestätigung)
-- OTA erfolgreich genutzt
+- Neue UI v2 als Startseite live
+- Medien-Bereich mit 2 klaren Quellen (Lokal/Netzwerkordner)
+- UNC-Unterstützung für Windows-Nutzer inkl. Hilfe-`?`
+- Share-Check und Share-Wechsel-Flow ergänzt (Admin-Passwort erforderlich)
+- Netzwerkordnerwechsel-Button + Passwort-Modal verbessert
+- WLAN-Modul + LED-Modul stabil im neuen UI verifiziert
 
 ## Nächster Schritt (V1 einfach)
-1. Mobile-first Oberfläche aufräumen (einfach, klar)
-2. Motor-Basisfunktionen sauber im UI (Winkel, Geschwindigkeit, Speichern, Senden)
-3. Einfache Konfig-Maske für Bildquelle (Upload oder Netzwerkordner)
-4. V1-Setup-Checkliste für Nutzer fertigstellen
+1. Motor-Basisfunktionen sauber im UI (Winkel, Geschwindigkeit, Speichern, Senden)
+2. Share-Wechsel robust gegen alle Mount-Sonderfälle härten (System-Mount-Handling)
+3. V1-Setup-Checkliste für Nutzer fertigstellen
 
 ## Offene Fragen
 - Exakte V1-Grenze final abnicken (was bleibt draußen)

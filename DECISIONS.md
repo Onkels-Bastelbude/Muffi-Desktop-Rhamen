@@ -15,3 +15,13 @@
 - Überladene Sonderfeatures vor Stabilität
 
 **Grund:** Schneller zu einem stabilen, verständlichen Produktzustand mit weniger Risiko.
+
+## 2026-05-17 – Medienquelle für Nutzer klar trennen
+**Entscheidung:** Medien-UI trennt explizit zwischen lokalem Speicher und Netzwerkordner; Share-Wechsel ist ein eigener Admin-Flow.
+
+**Warum:** Nutzer (v. a. Windows) sollen Ordner wechseln können, ohne Linux-Mountdetails kennen zu müssen. Gleichzeitig darf ein echter Share-Wechsel nicht still „nur als Unterordner“ interpretiert werden.
+
+**Umsetzung:**
+- UI-Kategorien: Lokal / Netzwerkordner
+- UNC-Hilfe im UI (`?`)
+- Share-Check API + Share-Wechsel-Button mit Passwort

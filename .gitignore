@@ -5,6 +5,10 @@ firmware/muffi-frame/build/
 __pycache__/
 *.pyc
 
+# Runtime media fallback storage (user data)
+runtime/photos/*
+!runtime/photos/.gitkeep
+
 # Editor/OS
 .DS_Store
 Thumbs.db

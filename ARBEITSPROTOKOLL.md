@@ -1,5 +1,35 @@
 # Arbeitsprotokoll – Muffi Bilderrahmen
 
+## 2026-05-17
+
+- Neue UI (`/ui-v2`) mit Bestands-Backend verbunden.
+- LED-Funktionen im neuen UI verifiziert: Ein/Aus, Helligkeit, Farbe, Reihenfolge und Katalogwechsel funktionieren.
+- WLAN-Modul live angebunden:
+  - API: `GET/POST /api/wlan`
+  - Verbindungstest: `POST /api/wlan/test` (TCP-Test auf ESP-Host)
+  - UI: SSID, Passwort, ESP-Host, Server-URL speichern + Test-Button
+- Firmware erweitert für WLAN nach Notizen:
+  - lädt/speichert WLAN + Server-Base in Preferences
+  - holt Konfig regelmäßig von `/api/wlan`
+  - nutzt dynamische `serverBase` für alle API-Aufrufe
+- Build erfolgreich mit `arduino-cli`.
+- Flash-Versuch gestartet, aktuell blockiert: `Failed to connect to ESP32-C6: No serial data received` auf `/dev/ttyAMA10`.
+- Medien-Upload Fehler analysiert und behoben:
+  - Ursache: `/mnt/muffi` war nicht schreibbar (`Permission denied`).
+  - Fix: Server nutzt automatisch lokalen Fallback-Ordner, wenn Netzwerkpfad nicht schreibbar ist.
+  - Fallback aktiv: `projects/muffi-bilderrahmen/runtime/photos`
+  - Upload wieder erfolgreich verifiziert (`HTTP 200`).
+- Medien-UI erweitert (Büro-Entscheid umgesetzt):
+  - Zwei klar getrennte Kategorien im Medien-Bereich: **Lokal (stabil)** und **Netzwerkordner**.
+  - Neuer API-Bereich `GET/POST /api/storage` für Pfadwahl und Modus (`auto|local|network`).
+  - Buttons: „Diesen Ordner nutzen“, „Netzwerkordner nutzen“, „Pfad speichern“.
+  - Klare Statusanzeige pro Kategorie (erreichbar/schreibbar/nicht erreichbar) + aktive Quelle hervorgehoben.
+- Share-Wechsel-Logik nachgeschärft:
+  - UNC-Pfade werden auf **gleichen Share** korrekt in Unterordner von `/mnt/muffi` gemappt.
+  - Bei **anderem Share** wird Pfad nicht übernommen (kein falscher Unterordner mehr).
+  - UI-Button ergänzt: **„Share wechseln (Admin)“**.
+  - Neue Prüf-API: `POST /api/storage/share-check` (zeigt klar, ob Admin-Remount nötig ist).
+
 ## 2026-05-16
 
 - Projektstruktur vereinheitlicht (alles in `projects/muffi-bilderrahmen/` gebündelt):

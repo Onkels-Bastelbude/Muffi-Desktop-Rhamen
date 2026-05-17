@@ -15,9 +15,9 @@
 #include <Preferences.h>
 
 // ============ EINSTELLUNGEN ============
-const char* WIFI_SSID     = "Papa Wlan";
-const char* WIFI_PASSWORD = "Andre123456";
-const char* SERVER_BASE   = "http://frame-server.local:8765"; // Beispielwert, lokal anpassen
+const char* WIFI_SSID_DEFAULT     = "Papa Wlan";
+const char* WIFI_PASSWORD_DEFAULT = "Andre123456";
+const char* SERVER_BASE_DEFAULT   = "http://frame-server.local:8765"; // Beispielwert, lokal anpassen
 #define DEFAULT_REFRESH_MS   (10 * 1000UL)
 #define BUTTON_PIN   9    // BOOT-Knopf
 #define SIDE_BUTTON_PIN 0  // Seitentaste (bei Bedarf anpassen)
@@ -112,8 +112,12 @@ bool uploadUiVisible = false;
 int lastUploadProgress = -1;
 String lastUploadPhase = "idle";
 
-// LED State
+// LED + Netzwerk State
 Preferences prefs;
+String wifiSsid = "";
+String wifiPassword = "";
+String serverBase = SERVER_BASE_DEFAULT;
+unsigned long lastWlanSyncMs = 0;
 bool ledOn = true;
 uint8_t ledBrightness = 180;
 uint8_t ledR = 255;
@@ -135,6 +139,87 @@ const uint8_t LED_CATALOG[][3] = {
   {255,   0, 180}  // magenta
 };
 const int LED_CATALOG_COUNT = sizeof(LED_CATALOG) / sizeof(LED_CATALOG[0]);
+
+String normalizeServerBase(const String& input) {
+  String out = input;
+  out.trim();
+  if (!out.length()) out = String(SERVER_BASE_DEFAULT);
+  while (out.endsWith("/")) out.remove(out.length() - 1);
+  return out;
+}
+
+String serverUrl(const String& path) {
+  if (!path.length()) return serverBase;
+  if (path.startsWith("/")) return serverBase + path;
+  return serverBase + "/" + path;
+}
+
+void loadNetworkConfigFromPrefs() {
+  wifiSsid = prefs.getString("wifiSsid", "");
+  wifiPassword = prefs.getString("wifiPw", "");
+  serverBase = normalizeServerBase(prefs.getString("srvBase", SERVER_BASE_DEFAULT));
+}
+
+void saveNetworkConfigToPrefs() {
+  prefs.putString("wifiSsid", wifiSsid);
+  prefs.putString("wifiPw", wifiPassword);
+  prefs.putString("srvBase", serverBase);
+}
+
+bool connectWiFiOnce(const String& ssid, const String& password, uint32_t timeoutMs, const char* statusLabel) {
+  if (!ssid.length()) return false;
+  showStatus(statusLabel, TFT_WHITE);
+  WiFi.begin(ssid.c_str(), password.c_str());
+
+  unsigned long start = millis();
+  while (WiFi.status() != WL_CONNECTED && (millis() - start) < timeoutMs) {
+    delay(300);
+  }
+  return WiFi.status() == WL_CONNECTED;
+}
+
+bool fetchWlanConfigFromServer() {
+  if (WiFi.status() != WL_CONNECTED) return false;
+
+  HTTPClient http;
+  http.begin(serverUrl("/api/wlan"));
+  http.setTimeout(3500);
+  int code = http.GET();
+  if (code != 200) {
+    http.end();
+    return false;
+  }
+
+  String body = http.getString();
+  http.end();
+
+  JsonDocument doc;
+  if (deserializeJson(doc, body)) return false;
+
+  String nextSsid = String((const char*)(doc["ssid"] | ""));
+  String nextPw = String((const char*)(doc["password"] | ""));
+  String nextBase = normalizeServerBase(String((const char*)(doc["serverBase"] | SERVER_BASE_DEFAULT)));
+
+  bool changed = false;
+  if (nextBase.length() && nextBase != serverBase) {
+    serverBase = nextBase;
+    changed = true;
+  }
+
+  if (nextSsid.length() && nextPw.length()) {
+    if (nextSsid != wifiSsid || nextPw != wifiPassword) {
+      wifiSsid = nextSsid;
+      wifiPassword = nextPw;
+      changed = true;
+    }
+  }
+
+  if (changed) {
+    saveNetworkConfigToPrefs();
+    Serial.println("WLAN/Server Config vom Server aktualisiert");
+  }
+  return true;
+}
 
 void setupOTA() {
   if (otaReady) return;
@@ -162,16 +247,23 @@ void setupOTA() {
 bool connectWiFi(uint32_t timeoutMs = 30000) {
   if (WiFi.status() == WL_CONNECTED) return true;
 
-  showStatus("Verbinde WLAN...", TFT_WHITE);
   WiFi.mode(WIFI_STA);
-  WiFi.begin(WIFI_SSID, WIFI_PASSWORD);
 
-  unsigned long start = millis();
-  while (WiFi.status() != WL_CONNECTED && (millis() - start) < timeoutMs) {
-    delay(300);
+  bool ok = false;
+  if (wifiSsid.length()) {
+    ok = connectWiFiOnce(wifiSsid, wifiPassword, timeoutMs, "WLAN (saved)...");
   }
 
-  if (WiFi.status() == WL_CONNECTED) {
+  if (!ok) {
+    ok = connectWiFiOnce(String(WIFI_SSID_DEFAULT), String(WIFI_PASSWORD_DEFAULT), timeoutMs, "WLAN (default)...");
+    if (ok) {
+      wifiSsid = WIFI_SSID_DEFAULT;
+      wifiPassword = WIFI_PASSWORD_DEFAULT;
+      saveNetworkConfigToPrefs();
+    }
+  }
+
+  if (ok) {
     showStatus("WLAN OK", TFT_GREEN);
     Serial.println("WLAN OK: " + WiFi.localIP().toString());
     setupOTA();
@@ -322,7 +414,7 @@ bool reportLedState(const char* source) {
   if (!ensureWiFiConnected()) return false;
 
   HTTPClient http;
-  http.begin(String(SERVER_BASE) + "/api/led");
+  http.begin(serverUrl("/api/led"));
   http.setTimeout(2000);
   http.addHeader("Content-Type", "application/json");
 
@@ -350,7 +442,7 @@ bool refreshLedFromServer() {
   if (!ensureWiFiConnected()) return false;
 
   HTTPClient http;
-  http.begin(String(SERVER_BASE) + "/api/led");
+  http.begin(serverUrl("/api/led"));
   http.setTimeout(2500);
   int code = http.GET();
   if (code != 200) {
@@ -428,7 +520,7 @@ void showStatus(const char* msg, uint16_t color) {
 // Dateiliste vom Server holen
 bool refreshFileList() {
   HTTPClient http;
-  http.begin(String(SERVER_BASE) + "/list");
+  http.begin(serverUrl("/list"));
   http.setTimeout(8000);
   int code = http.GET();
   if (code != 200) { http.end(); return false; }
@@ -452,7 +544,7 @@ bool refreshFileList() {
 
 bool reportFrameState(const String& filename, bool isLandscape, int idx, int count) {
   HTTPClient http;
-  http.begin(String(SERVER_BASE) + "/api/frame-state");
+  http.begin(serverUrl("/api/frame-state"));
   http.setTimeout(2000);
   http.addHeader("Content-Type", "application/json");
 
@@ -485,7 +577,7 @@ void showImage(int idx) {
   tft.setRotation(newRotation);
   currentRotation = newRotation;
 
-  String url = String(SERVER_BASE) + "/" + filename;
+  String url = serverUrl("/") + filename;
   Serial.println("Lade [" + String(idx+1) + "/" + String(fileCount) + "]: " + filename);
 
   // Bildnummer anzeigen während geladen wird
@@ -557,7 +649,7 @@ void showImage(int idx) {
 
 bool refreshSettingsFromServer() {
   HTTPClient http;
-  http.begin(String(SERVER_BASE) + "/api/config");
+  http.begin(serverUrl("/api/config"));
   http.setTimeout(5000);
   int code = http.GET();
   if (code != 200) { http.end(); return false; }
@@ -618,7 +710,7 @@ void showUploadProgress(const String& phase, int progress, const String& filenam
 
 bool pollUploadStatus() {
   HTTPClient http;
-  http.begin(String(SERVER_BASE) + "/api/upload-status");
+  http.begin(serverUrl("/api/upload-status"));
   http.setTimeout(2500);
   int code = http.GET();
   if (code != 200) {
@@ -686,6 +778,7 @@ void setup() {
   attachInterrupt(BUTTON_PIN, bootButtonISR, CHANGE);
 
   prefs.begin("muffi", false);
+  loadNetworkConfigFromPrefs();
   ledOn = prefs.getBool("ledOn", true);
   ledBrightness = prefs.getUChar("ledBri", 180);
   ledR = prefs.getUChar("ledR", 255);
@@ -709,6 +802,7 @@ void setup() {
   tft.setRotation(0);
   tft.setBrightness(220);
   connectWiFi();
+  fetchWlanConfigFromServer();
 
   showStatus("Lade Settings...", TFT_GREEN);
   if (!refreshSettingsFromServer()) {
@@ -734,6 +828,11 @@ void loop() {
     ArduinoOTA.handle();
   } else {
     ensureWiFiConnected();
+  }
+
+  if (WiFi.status() == WL_CONNECTED && millis() - lastWlanSyncMs > 60000UL) {
+    lastWlanSyncMs = millis();
+    fetchWlanConfigFromServer();
   }
 
   // Upload-Status vom Server pollen und auf dem Rahmen anzeigen
