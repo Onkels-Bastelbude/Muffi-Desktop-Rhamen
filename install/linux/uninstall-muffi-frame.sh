@@ -1,7 +1,9 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
-INSTALL_DIR="${INSTALL_DIR:-$HOME/muffi-frame}"
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+DEFAULT_INSTALL_DIR="$(cd "$SCRIPT_DIR/../.." && pwd)"
+INSTALL_DIR="${INSTALL_DIR:-$DEFAULT_INSTALL_DIR}"
 SERVICE_NAME="${SERVICE_NAME:-muffi-frame}"
 UNIT_PATH="$HOME/.config/systemd/user/${SERVICE_NAME}.service"
 PURGE=0

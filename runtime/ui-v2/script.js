@@ -519,6 +519,87 @@ $('#fw-usb-btn')?.addEventListener('click', () => {
   $('#fw-msg').textContent = 'ℹ️ USB-Flash: ESP per Datenkabel verbinden, BOOT halten + RESET tippen, dann Upload starten.';
 });
 
+let fwUpdatePollTimer = null;
+let fwUpdateOffset = 0;
+
+function fwConsoleEl() { return $('#fw-console-output'); }
+
+function fwAppendLine(line = '') {
+  const out = fwConsoleEl();
+  if (!out) return;
+  const txt = String(line || '');
+  out.textContent += txt + '\n';
+  if (out.textContent.length > 120000) {
+    out.textContent = out.textContent.slice(-120000);
+  }
+  out.scrollTop = out.scrollHeight;
+}
+
+function fwSetRunningUi(running) {
+  const btn = $('#fw-update-btn');
+  if (!btn) return;
+  btn.disabled = !!running;
+  btn.textContent = running ? '⏳ Update läuft…' : '🧰 Server Update starten';
+}
+
+function fwResetConsole() {
+  const out = fwConsoleEl();
+  if (out) out.textContent = '';
+  fwUpdateOffset = 0;
+}
+
+async function fwPollUpdateStatus() {
+  try {
+    const s = await jget(`/api/update/status?offset=${fwUpdateOffset}`);
+    const lines = Array.isArray(s.lines) ? s.lines : [];
+    lines.forEach((ln) => fwAppendLine(ln));
+    fwUpdateOffset = Number(s.totalLines || fwUpdateOffset);
+
+    const phase = String(s.phase || 'idle');
+    if (phase === 'running') {
+      fwSetRunningUi(true);
+      fwUpdatePollTimer = setTimeout(fwPollUpdateStatus, 900);
+      return;
+    }
+
+    fwSetRunningUi(false);
+    if (phase === 'done') {
+      fwAppendLine('✅ Update abgeschlossen.');
+      $('#fw-msg').textContent = '✅ Update abgeschlossen';
+    } else if (phase === 'error') {
+      fwAppendLine(`❌ Update fehlgeschlagen (exit ${s.exitCode ?? 'unknown'})`);
+      $('#fw-msg').textContent = `❌ Update fehlgeschlagen (exit ${s.exitCode ?? 'unknown'})`;
+    }
+  } catch (e) {
+    fwAppendLine('❌ Status konnte nicht gelesen werden: ' + (e?.message || e));
+    fwSetRunningUi(false);
+  }
+}
+
+$('#fw-update-btn')?.addEventListener('click', async () => {
+  try {
+    clearTimeout(fwUpdatePollTimer);
+    fwResetConsole();
+    $('#fw-console-wrap')?.classList.remove('hidden');
+    fwAppendLine('🟠 Starte Update…');
+    $('#fw-msg').textContent = 'Update gestartet…';
+    fwSetRunningUi(true);
+
+    const d = await jpost('/api/update/start', {});
+    fwAppendLine(d.message || 'Update gestartet');
+    fwPollUpdateStatus();
+  } catch (e) {
+    fwSetRunningUi(false);
+    fwAppendLine('❌ Start fehlgeschlagen: ' + (e?.message || e));
+    $('#fw-msg').textContent = '❌ Update konnte nicht gestartet werden: ' + (e?.message || e);
+  }
+});
+
+$('#fw-console-clear-btn')?.addEventListener('click', () => {
+  fwResetConsole();
+  $('#fw-msg').textContent = 'Konsole geleert.';
+});
+
 $('#upload-form')?.addEventListener('submit', (e) => {
   e.preventDefault();
   const file = $('#upload-file').files?.[0];
@@ -537,7 +618,30 @@ $('#upload-form')?.addEventListener('submit', (e) => {
   xhr.send(file);
 });
 
-(async function init(){ await refreshServer(); await loadShareAuthIntoUi(); const d = await refreshStorageDiagnostics(); setStorageAutoMsg(d?.ok ? '✅ Verbindung ist bereit. Du kannst direkt automatisch verbinden.' : 'Assistent bereit. Pfad eintragen und auf „Automatisch verbinden“ klicken.'); await ledRefresh(); await wlanRefresh(); await refreshMediaAndFrame(); setInterval(refreshMediaAndFrame, 3500); setInterval(ledRefresh, 2500); setInterval(refreshServer, 10000); })();
+(async function init(){
+  await refreshServer();
+  await loadShareAuthIntoUi();
+  const d = await refreshStorageDiagnostics();
+  setStorageAutoMsg(d?.ok ? '✅ Verbindung ist bereit. Du kannst direkt automatisch verbinden.' : 'Assistent bereit. Pfad eintragen und auf „Automatisch verbinden“ klicken.');
+  await ledRefresh();
+  await wlanRefresh();
+  await refreshMediaAndFrame();
+
+  try {
+    const st = await jget('/api/update/status');
+    fwUpdateOffset = Number(st.totalLines || 0);
+    if (st.phase && st.phase !== 'idle') {
+      $('#fw-console-wrap')?.classList.remove('hidden');
+      const lines = Array.isArray(st.lines) ? st.lines : [];
+      lines.forEach((ln) => fwAppendLine(ln));
+      if (st.phase === 'running') fwPollUpdateStatus();
+    }
+  } catch (_) {}
+
+  setInterval(refreshMediaAndFrame, 3500);
+  setInterval(ledRefresh, 2500);
+  setInterval(refreshServer, 10000);
+})();
 
 // ===== SMB Network Browser =====
 

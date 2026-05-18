@@ -65,6 +65,16 @@ FRAME_STATE = {
 
 LED_LOCK = threading.Lock()
 
+UPDATE_LOCK = threading.Lock()
+UPDATE_STATE = {
+    "phase": "idle",          # idle | running | done | error
+    "lines": [],
+    "exitCode": None,
+    "startedAt": 0.0,
+    "finishedAt": 0.0,
+    "scriptPath": "",
+}
+
 
 def safe_isdir(path):
     try:
@@ -942,6 +952,102 @@ def test_share_credentials(username: str, password: str, network_path: str = "")
     return {"ok": False, "host": host, "share": share, "error": (err or "SMB Zugriff fehlgeschlagen")[:300]}
 
 
+def _update_append_line(line: str):
+    text = str(line or "").rstrip("\n")
+    text = re.sub(r"\x1b\[[0-9;]*m", "", text)
+    with UPDATE_LOCK:
+        UPDATE_STATE["lines"].append(text)
+        # Speicher begrenzen
+        if len(UPDATE_STATE["lines"]) > 1500:
+            UPDATE_STATE["lines"] = UPDATE_STATE["lines"][-1500:]
+
+
+def _resolve_update_script_path():
+    candidates = [
+        os.path.abspath(os.path.join(RUNTIME_DIR, "..", "install", "linux", "update-muffi-frame.sh")),
+        os.path.abspath(os.path.join(RUNTIME_DIR, "..", "..", "install", "linux", "update-muffi-frame.sh")),
+    ]
+    for p in candidates:
+        if os.path.isfile(p):
+            return p
+    return ""
+
+
+def start_update_job():
+    script = _resolve_update_script_path()
+    if not script:
+        return {"ok": False, "error": "Update-Skript nicht gefunden (install/linux/update-muffi-frame.sh)"}
+
+    with UPDATE_LOCK:
+        if UPDATE_STATE.get("phase") == "running":
+            return {"ok": False, "error": "Update läuft bereits"}
+        UPDATE_STATE.update({
+            "phase": "running",
+            "lines": [],
+            "exitCode": None,
+            "startedAt": time.time(),
+            "finishedAt": 0.0,
+            "scriptPath": script,
+        })
+
+    def _runner():
+        _update_append_line(f"[info] starte: {script}")
+        try:
+            proc = subprocess.Popen(
+                ["bash", script],
+                cwd=os.path.dirname(script),
+                env={**os.environ, "SKIP_SERVICE_RESTART": "1"},
+                stdout=subprocess.PIPE,
+                stderr=subprocess.STDOUT,
+                text=True,
+                bufsize=1,
+            )
+
+            if proc.stdout is not None:
+                for line in proc.stdout:
+                    _update_append_line(line)
+
+            proc.wait()
+            with UPDATE_LOCK:
+                UPDATE_STATE["exitCode"] = int(proc.returncode)
+                UPDATE_STATE["phase"] = "done" if proc.returncode == 0 else "error"
+                UPDATE_STATE["finishedAt"] = time.time()
+        except Exception as e:
+            _update_append_line(f"[error] exception: {e}")
+            with UPDATE_LOCK:
+                UPDATE_STATE["exitCode"] = -1
+                UPDATE_STATE["phase"] = "error"
+                UPDATE_STATE["finishedAt"] = time.time()
+
+    threading.Thread(target=_runner, daemon=True).start()
+    return {"ok": True, "message": "Update gestartet"}
+
+
+def get_update_status(offset=0):
+    try:
+        offset = int(offset)
+    except Exception:
+        offset = 0
+    if offset < 0:
+        offset = 0
+
+    with UPDATE_LOCK:
+        lines = UPDATE_STATE.get("lines", [])
+        total = len(lines)
+        if offset > total:
+            offset = total
+        return {
+            "phase": UPDATE_STATE.get("phase", "idle"),
+            "exitCode": UPDATE_STATE.get("exitCode"),
+            "startedAt": float(UPDATE_STATE.get("startedAt") or 0.0),
+            "finishedAt": float(UPDATE_STATE.get("finishedAt") or 0.0),
+            "scriptPath": UPDATE_STATE.get("scriptPath", ""),
+            "offset": offset,
+            "totalLines": total,
+            "lines": lines[offset:],
+        }
+
+
 def remount_network_share(password: str, share_user: str = "", share_password: str = ""):
     pw = str(password or "")
     if not pw:
@@ -1682,6 +1788,12 @@ class FrameHandler(BaseHTTPRequestHandler):
             self.send_json(get_storage_diagnostics())
             return
 
+        if path == "api/update/status":
+            qs_params = parse_qs(parsed.query or "")
+            offset = qs_params.get("offset", [0])[0]
+            self.send_json(get_update_status(offset=offset))
+            return
+
         if path == "api/storage/auth":
             self.send_json(get_storage_auth_snapshot(mask_password=True))
             return
@@ -1911,6 +2023,14 @@ class FrameHandler(BaseHTTPRequestHandler):
                 "hint": analysis.get("hint", ""),
                 "mountSource": analysis.get("mountSource", ""),
             })
+            return
+
+        if path == "api/update/start":
+            result = start_update_job()
+            if not result.get("ok"):
+                self.send_json({"ok": False, "error": result.get("error", "Update konnte nicht gestartet werden")}, status=409)
+                return
+            self.send_json({"ok": True, "message": result.get("message", "Update gestartet")})
             return
 
         if path == "api/storage/auth":

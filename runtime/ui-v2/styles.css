@@ -53,3 +53,8 @@ a{color:#ffd3a5}.topbar{display:flex;justify-content:space-between;gap:10px;alig
 .smb-path-preview{font-size:12px;color:var(--muted);overflow:hidden;text-overflow:ellipsis;white-space:nowrap;flex:1}
 .smb-empty{padding:20px;text-align:center;color:var(--muted);font-size:13px}
 .smb-error{padding:12px 16px;color:#d96c5f;font-size:13px}
+
+/* ===== Firmware 70s Console ===== */
+.fw-console-wrap{margin-top:12px;border:1px solid #7c5a3b;border-radius:12px;background:linear-gradient(180deg,#1b140c,#120d08);box-shadow:inset 0 0 0 1px #3a2a1d,inset 0 0 20px #f2b35e22,0 0 16px #0008}
+.fw-console-head{padding:8px 12px;border-bottom:1px solid #4a3728;color:#d8bc96;font-family:"IBM Plex Mono","Space Mono",ui-monospace,monospace;font-size:12px;letter-spacing:.08em;text-transform:uppercase}
+.fw-console-output{margin:0;padding:12px;height:240px;overflow:auto;white-space:pre-wrap;word-break:break-word;font-family:"IBM Plex Mono","Space Mono",ui-monospace,monospace;font-size:12px;line-height:1.45;color:#f2d084;text-shadow:0 0 4px #f2b35e55;background:repeating-linear-gradient(180deg,rgba(255,214,160,.02) 0,rgba(255,214,160,.02) 2px,rgba(0,0,0,.08) 2px,rgba(0,0,0,.08) 4px)}
