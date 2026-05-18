@@ -37,8 +37,16 @@ if [[ ! -d "$INSTALL_DIR/.git" ]]; then
 fi
 
 log "Hole neueste Version von GitHub"
+OLD_REV="$(git -C "$INSTALL_DIR" rev-parse --short HEAD 2>/dev/null || true)"
 git -C "$INSTALL_DIR" fetch --all --prune -q
 git -C "$INSTALL_DIR" reset --hard origin/main -q
+NEW_REV="$(git -C "$INSTALL_DIR" rev-parse --short HEAD 2>/dev/null || true)"
+
+if [[ -n "$OLD_REV" && "$OLD_REV" = "$NEW_REV" ]]; then
+  log "Version ist aktuell ($NEW_REV)"
+else
+  log "Update angewendet: ${OLD_REV:-none} -> ${NEW_REV:-unknown}"
+fi
 
 log "Python-Umgebung aktualisieren"
 if [[ ! -x "$VENV_DIR/bin/pip" ]]; then

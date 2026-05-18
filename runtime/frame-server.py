@@ -8,7 +8,7 @@ from http.server import ThreadingHTTPServer, BaseHTTPRequestHandler
 from PIL import Image, ImageOps
 from urllib.parse import unquote, quote, parse_qs, urlparse
 from html import escape
-import os, io, json, time, threading, re, socket, subprocess
+import os, io, json, time, threading, re, socket, subprocess, tempfile
 
 PHOTO_DIR  = "/mnt/muffi"
 FALLBACK_PHOTO_DIR = "/home/maika/.openclaw/workspace/projects/muffi-bilderrahmen/runtime/photos"
@@ -978,6 +978,45 @@ def start_update_job():
     if not script:
         return {"ok": False, "error": "Update-Skript nicht gefunden (install/linux/update-muffi-frame.sh)"}
 
+    script_to_run = script
+    tmp_script = ""
+    remote_url = os.environ.get(
+        "MUFFI_UPDATE_SCRIPT_URL",
+        "https://raw.githubusercontent.com/Onkels-Bastelbude/Muffi-Desktop-Rhamen/main/install/linux/update-muffi-frame.sh",
+    )
+
+    # Best effort: immer zuerst neuestes Update-Skript von GitHub holen.
+    try:
+        with tempfile.NamedTemporaryFile(prefix="muffi-update-", suffix=".sh", delete=False) as tf:
+            tmp_script = tf.name
+        dl = subprocess.run(
+            ["curl", "-fsSL", remote_url, "-o", tmp_script],
+            capture_output=True,
+            text=True,
+            timeout=12,
+            check=False,
+        )
+        if dl.returncode == 0 and os.path.getsize(tmp_script) > 0:
+            try:
+                os.chmod(tmp_script, 0o700)
+            except Exception:
+                pass
+            script_to_run = tmp_script
+        else:
+            if tmp_script and os.path.exists(tmp_script):
+                try:
+                    os.unlink(tmp_script)
+                except Exception:
+                    pass
+            tmp_script = ""
+    except Exception:
+        if tmp_script and os.path.exists(tmp_script):
+            try:
+                os.unlink(tmp_script)
+            except Exception:
+                pass
+        tmp_script = ""
+
     with UPDATE_LOCK:
         if UPDATE_STATE.get("phase") == "running":
             return {"ok": False, "error": "Update läuft bereits"}
@@ -987,16 +1026,21 @@ def start_update_job():
             "exitCode": None,
             "startedAt": time.time(),
             "finishedAt": 0.0,
-            "scriptPath": script,
+            "scriptPath": script_to_run,
         })
 
     def _runner():
-        _update_append_line(f"[info] starte: {script}")
+        _update_append_line(f"[info] starte: {script_to_run}")
         try:
+            install_dir = os.environ.get("MUFFI_INSTALL_DIR") or os.path.abspath(os.path.join(RUNTIME_DIR, ".."))
             proc = subprocess.Popen(
-                ["bash", script],
+                ["bash", script_to_run],
                 cwd=os.path.dirname(script),
-                env={**os.environ, "SKIP_SERVICE_RESTART": "1"},
+                env={
+                    **os.environ,
+                    "SKIP_SERVICE_RESTART": "1",
+                    "INSTALL_DIR": install_dir,
+                },
                 stdout=subprocess.PIPE,
                 stderr=subprocess.STDOUT,
                 text=True,
@@ -1012,12 +1056,22 @@ def start_update_job():
                 UPDATE_STATE["exitCode"] = int(proc.returncode)
                 UPDATE_STATE["phase"] = "done" if proc.returncode == 0 else "error"
                 UPDATE_STATE["finishedAt"] = time.time()
+            if tmp_script and os.path.exists(tmp_script):
+                try:
+                    os.unlink(tmp_script)
+                except Exception:
+                    pass
         except Exception as e:
             _update_append_line(f"[error] exception: {e}")
             with UPDATE_LOCK:
                 UPDATE_STATE["exitCode"] = -1
                 UPDATE_STATE["phase"] = "error"
                 UPDATE_STATE["finishedAt"] = time.time()
+            if tmp_script and os.path.exists(tmp_script):
+                try:
+                    os.unlink(tmp_script)
+                except Exception:
+                    pass
 
     threading.Thread(target=_runner, daemon=True).start()
     return {"ok": True, "message": "Update gestartet"}
