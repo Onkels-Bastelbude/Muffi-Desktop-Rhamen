@@ -7,6 +7,8 @@ System läuft und ist aktuell funktionsfähig.
 ## Installer (neu)
 
 - Linux-Installer: `install/linux/install-muffi-frame.sh`
+- Update-Script: `install/linux/update-muffi-frame.sh`
+- Uninstall-Script: `install/linux/uninstall-muffi-frame.sh`
 - Zielgruppe aktuell: **DIY Linux/Raspberry Pi (Debian/Ubuntu)**
 - Quickstart + Optionen stehen in `README.md`
 

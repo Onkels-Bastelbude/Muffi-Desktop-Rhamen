@@ -23,6 +23,22 @@ Danach:
 - Service Status: `systemctl --user status muffi-frame.service`
 - Logs: `journalctl --user -u muffi-frame.service -f`
 
+## Update
+
+```bash
+bash install/linux/update-muffi-frame.sh
+```
+
+## Uninstall
+
+```bash
+# nur Service entfernen (Code bleibt)
+bash install/linux/uninstall-muffi-frame.sh
+
+# komplett inkl. Installationsordner
+bash install/linux/uninstall-muffi-frame.sh --purge
+```
+
 Optional für Headless Dauerbetrieb:
 
 ```bash
