@@ -1048,6 +1048,28 @@ def get_update_status(offset=0):
         }
 
 
+def trigger_server_restart(delay_seconds=1.0):
+    try:
+        delay = float(delay_seconds)
+    except Exception:
+        delay = 1.0
+    if delay < 0.2:
+        delay = 0.2
+
+    service = os.environ.get("MUFFI_SERVICE_NAME", "frame-server.service")
+    cmd = f"sleep {delay}; systemctl --user restart {service}"
+    try:
+        subprocess.Popen(
+            ["sh", "-lc", cmd],
+            stdout=subprocess.DEVNULL,
+            stderr=subprocess.DEVNULL,
+            start_new_session=True,
+        )
+        return {"ok": True, "message": f"Restart für {service} ausgelöst"}
+    except Exception as e:
+        return {"ok": False, "error": str(e)}
+
+
 def remount_network_share(password: str, share_user: str = "", share_password: str = ""):
     pw = str(password or "")
     if not pw:
@@ -2031,6 +2053,14 @@ class FrameHandler(BaseHTTPRequestHandler):
                 self.send_json({"ok": False, "error": result.get("error", "Update konnte nicht gestartet werden")}, status=409)
                 return
             self.send_json({"ok": True, "message": result.get("message", "Update gestartet")})
+            return
+
+        if path == "api/server/restart":
+            result = trigger_server_restart(delay_seconds=1.0)
+            if not result.get("ok"):
+                self.send_json({"ok": False, "error": result.get("error", "Restart konnte nicht ausgelöst werden")}, status=500)
+                return
+            self.send_json({"ok": True, "message": result.get("message", "Restart ausgelöst")})
             return
 
         if path == "api/storage/auth":

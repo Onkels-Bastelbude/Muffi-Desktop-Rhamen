@@ -519,6 +519,25 @@ $('#fw-usb-btn')?.addEventListener('click', () => {
   $('#fw-msg').textContent = 'ℹ️ USB-Flash: ESP per Datenkabel verbinden, BOOT halten + RESET tippen, dann Upload starten.';
 });
 
+$('#fw-restart-btn')?.addEventListener('click', async () => {
+  try {
+    $('#fw-msg').textContent = '🔁 Server-Restart wird ausgelöst…';
+    const d = await jpost('/api/server/restart', {});
+    fwAppendLine(d.message || 'Restart ausgelöst');
+    $('#fw-msg').textContent = '🔁 Restart ausgelöst. UI verbindet sich gleich neu…';
+    setTimeout(async () => {
+      try {
+        await refreshServer();
+        $('#fw-msg').textContent = '✅ Server wieder erreichbar.';
+      } catch (_) {
+        $('#fw-msg').textContent = '⏳ Warte auf Server… bitte kurz Seite neu laden.';
+      }
+    }, 2500);
+  } catch (e2) {
+    $('#fw-msg').textContent = '❌ Restart fehlgeschlagen: ' + e2.message;
+  }
+});
+
 let fwUpdatePollTimer = null;
 let fwUpdateOffset = 0;
 
