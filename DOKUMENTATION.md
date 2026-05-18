@@ -4,6 +4,12 @@
 
 System läuft und ist aktuell funktionsfähig.
 
+## Installer (neu)
+
+- Linux-Installer: `install/linux/install-muffi-frame.sh`
+- Zielgruppe aktuell: **DIY Linux/Raspberry Pi (Debian/Ubuntu)**
+- Quickstart + Optionen stehen in `README.md`
+
 ## Code-Orte (Stand 2026-05-16)
 - Server-Code (live): `projects/muffi-bilderrahmen/runtime/frame-server.py`
 - Firmware-Code (live): `projects/muffi-bilderrahmen/firmware/muffi-frame/muffi-frame.ino`
