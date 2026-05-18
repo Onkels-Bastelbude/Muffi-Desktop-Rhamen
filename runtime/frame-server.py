@@ -1033,6 +1033,20 @@ def start_update_job():
         _update_append_line(f"[info] starte: {script_to_run}")
         try:
             install_dir = os.environ.get("MUFFI_INSTALL_DIR") or os.path.abspath(os.path.join(RUNTIME_DIR, ".."))
+            old_rev = ""
+            try:
+                gr = subprocess.run(
+                    ["git", "-C", install_dir, "rev-parse", "--short", "HEAD"],
+                    capture_output=True,
+                    text=True,
+                    timeout=4,
+                    check=False,
+                )
+                if gr.returncode == 0:
+                    old_rev = (gr.stdout or "").strip()
+            except Exception:
+                pass
+
             proc = subprocess.Popen(
                 ["bash", script_to_run],
                 cwd=os.path.dirname(script),
@@ -1056,6 +1070,27 @@ def start_update_job():
                 UPDATE_STATE["exitCode"] = int(proc.returncode)
                 UPDATE_STATE["phase"] = "done" if proc.returncode == 0 else "error"
                 UPDATE_STATE["finishedAt"] = time.time()
+
+            if proc.returncode == 0:
+                new_rev = ""
+                try:
+                    gr2 = subprocess.run(
+                        ["git", "-C", install_dir, "rev-parse", "--short", "HEAD"],
+                        capture_output=True,
+                        text=True,
+                        timeout=4,
+                        check=False,
+                    )
+                    if gr2.returncode == 0:
+                        new_rev = (gr2.stdout or "").strip()
+                except Exception:
+                    pass
+
+                if old_rev and new_rev and old_rev == new_rev:
+                    _update_append_line(f"[info] Version ist aktuell ({new_rev})")
+                elif new_rev:
+                    _update_append_line(f"[info] Update angewendet: {old_rev or 'none'} -> {new_rev}")
+
             if tmp_script and os.path.exists(tmp_script):
                 try:
                     os.unlink(tmp_script)
