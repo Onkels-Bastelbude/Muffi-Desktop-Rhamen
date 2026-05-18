@@ -63,6 +63,43 @@
               <input id="storage-network-path" type="text" placeholder="/mnt/muffi oder \\BOOBIES\Bilder MUffi" />
               <button type="button" id="save-network-path-btn">🚀 Automatisch verbinden</button>
             </div>
+            <div class="row">
+              <button type="button" id="smb-browse-open-btn" title="Netzwerk nach Servern und Shares durchsuchen">🔍 Netzwerk</button>
+            </div>
+
+  <!-- ===== SMB Network Browser Modal ===== -->
+  <div id="smb-modal" style="display:none;" role="dialog" aria-modal="true" aria-labelledby="smb-modal-title">
+    <div id="smb-modal-box">
+      <div id="smb-modal-header">
+        <span id="smb-modal-title">🔍 Netzwerk-Browser</span>
+      </div>
+
+      <!-- Credentials (always visible) -->
+      <div id="smb-auth-details">
+        <div class="mini" style="margin-bottom:8px;">🔐 Zugangsdaten (optional, für gesicherte Shares)</div>
+        <div class="smb-auth-row">
+          <input id="smb-user" type="text" placeholder="Benutzername" autocomplete="username" />
+          <input id="smb-pw" type="password" placeholder="Passwort" autocomplete="current-password" />
+          <button type="button" id="smb-auth-save-btn">💾 Testen & speichern</button>
+        </div>
+      </div>
+
+      <!-- Breadcrumb -->
+      <div id="smb-breadcrumb" class="smb-breadcrumb"></div>
+
+      <!-- Step message / spinner -->
+      <div id="smb-status" class="smb-status"></div>
+
+      <!-- Content area: host list / share list / folder list -->
+      <div id="smb-content" class="smb-content"></div>
+
+      <!-- Action bar -->
+      <div id="smb-action-bar" class="smb-action-bar" style="display:none;">
+        <button type="button" id="smb-select-here-btn">📂 Diesen Ordner auswählen</button>
+        <span id="smb-select-path-preview" class="smb-path-preview"></span>
+      </div>
+    </div>
+  </div>
             <div class="row" id="storage-advanced-row" style="display:none;">
               <button type="button" id="share-switch-check-btn">1) Share umstellen (Passwort erforderlich)</button>
               <button type="button" id="remount-network-btn">2) Share neu verbinden (Passwort)</button>

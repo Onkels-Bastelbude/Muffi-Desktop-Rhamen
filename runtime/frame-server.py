@@ -105,9 +105,14 @@ def sanitize_storage_config(raw):
         local_path = FALLBACK_PHOTO_DIR
     local_path = os.path.abspath(local_path)[:256]
 
+    raw_network_path = str(raw.get("rawNetworkPath", "") or "").strip()[:256]
+    if not raw_network_path:
+        raw_network_path = network_path
+
     return {
         "mode": mode,
         "networkPath": network_path,
+        "rawNetworkPath": raw_network_path,
         "localPath": local_path,
         "updatedAt": float(raw.get("updatedAt") or 0.0),
     }
@@ -287,6 +292,135 @@ def analyze_network_path_input(value):
     }
 
 
+# ─── SMB Network Browser ────────────────────────────────────────────────────
+
+def _smb_run(cmd, timeout=8):
+    """Run an SMB CLI command and return (stdout, stderr, returncode)."""
+    try:
+        env = {**os.environ, "LANG": "C", "LC_ALL": "C"}
+        r = subprocess.run(cmd, capture_output=True, text=True, timeout=timeout, env=env)
+        return r.stdout, r.stderr, r.returncode
+    except subprocess.TimeoutExpired:
+        return "", "timeout", -1
+    except Exception as exc:
+        return "", str(exc), -1
+
+
+def smb_discover_hosts(timeout=5):
+    """Discover SMB/CIFS hosts on the local network via nmblookup + avahi."""
+    hosts = {}  # ip -> display_name
+
+    # Primary: NetBIOS broadcast (fast, ~2s, needs samba-common)
+    stdout, _, _ = _smb_run(["nmblookup", "-T", "*"], timeout=timeout)
+    for line in stdout.splitlines():
+        # With -T: "192.168.50.10  hostname.local" (DNS resolved)
+        # Without -T: "192.168.50.10  *<00>"
+        m = re.match(r'^(\d+\.\d+\.\d+\.\d+)\s+(\S+)', line.strip())
+        if not m:
+            continue
+        ip, name = m.group(1), m.group(2)
+        name = re.sub(r'<[^>]+>', '', name).strip().rstrip('.')
+        if ip.endswith('.255') or ip == '0.0.0.0' or not name or name == '*':
+            continue
+        if ip not in hosts:
+            hosts[ip] = name
+
+    # Secondary: mDNS / Bonjour (Linux/Mac NAS with avahi-daemon)
+    avahi_bin = None
+    for b in ["/usr/bin/avahi-browse", "/usr/local/bin/avahi-browse"]:
+        if os.path.isfile(b):
+            avahi_bin = b
+            break
+    if avahi_bin:
+        stdout, _, _ = _smb_run([avahi_bin, "-t", "-r", "-p", "_smb._tcp"], timeout=timeout)
+        for line in stdout.splitlines():
+            if not line.startswith("="):
+                continue
+            parts = line.split(";")
+            if len(parts) >= 8:
+                name = parts[3].strip("'\" ")
+                ip   = parts[7].strip("'\" ")
+                if ip and re.match(r'^\d+\.\d+\.\d+\.\d+$', ip) and ip not in hosts:
+                    hosts[ip] = name
+
+    return sorted(
+        [{"ip": ip, "name": name} for ip, name in hosts.items()],
+        key=lambda h: h["ip"]
+    )
+
+
+def smb_list_shares(host, user="", password="", timeout=8):
+    """List Disk-type shares on an SMB host. Returns (shares, ok, err_msg)."""
+    if user:
+        auth = f"{user}%{password}" if password else user
+        cmd = ["smbclient", "-U", auth, "-L", f"//{host}"]
+    else:
+        cmd = ["smbclient", "-N", "-L", f"//{host}"]
+
+    stdout, stderr, rc = _smb_run(cmd, timeout=timeout)
+    shares = []
+    in_list = False
+    past_sep = False
+
+    for line in stdout.splitlines():
+        if "Sharename" in line and "Type" in line:
+            in_list = True
+            continue
+        if not in_list:
+            continue
+        if re.match(r'^\s*-{3,}', line):
+            past_sep = True
+            continue
+        if not past_sep:
+            continue
+        stripped = line.strip()
+        if not stripped:
+            break
+        parts = stripped.split()
+        if len(parts) < 2:
+            continue
+        sname  = parts[0]
+        stype  = parts[1].upper()
+        comment = " ".join(parts[2:]) if len(parts) > 2 else ""
+        if sname.upper().endswith("$") or stype in ("IPC", "PRINTER"):
+            continue
+        shares.append({"name": sname, "type": stype, "comment": comment})
+
+    ok = bool(shares) or "Sharename" in stdout
+    return shares, ok, ("" if ok else stderr.strip())
+
+
+def smb_browse_folder(host, share, path="", user="", password="", timeout=8):
+    """List directory entries in an SMB share path. Returns (entries, ok, err_msg)."""
+    smb_path = path.replace("/", "\\").strip("\\")
+    ls_cmd = f"ls \\{smb_path}\\*" if smb_path else "ls"
+
+    if user:
+        auth = f"{user}%{password}" if password else user
+        cmd = ["smbclient", f"//{host}/{share}", "-U", auth, "-c", ls_cmd]
+    else:
+        cmd = ["smbclient", f"//{host}/{share}", "-N", "-c", ls_cmd]
+
+    stdout, stderr, rc = _smb_run(cmd, timeout=timeout)
+    entries = []
+
+    for line in stdout.splitlines():
+        # "  filename                         D        0  Mon Jan  1 00:00:00 2026"
+        m = re.match(r'^\s+(.+?)\s+(D|A|H|N|R|S)\s+(-?\d+)\s', line)
+        if not m:
+            continue
+        name = m.group(1).strip()
+        is_dir = m.group(2) == "D"
+        if name in (".", ".."):
+            continue
+        entries.append({"name": name, "type": "dir" if is_dir else "file"})
+
+    ok = bool(entries) or rc == 0
+    return entries, ok, ("" if ok else stderr.strip())
+
+
+# ─── end SMB Network Browser ──────────────────────────────────────────────────
+
 def get_storage_diagnostics():
     st = get_storage_state()
     network = st.get("network", {})
@@ -391,6 +525,7 @@ def get_storage_state():
         "mode": mode,
         "activePath": active_path,
         "activeSource": active_source,
+        "rawNetworkPath": str(storage.get("rawNetworkPath") or network_path),
         "network": {
             "path": network_path,
             "exists": safe_isdir(network_path),
@@ -488,12 +623,24 @@ def sanitize_wlan_config(raw):
     }
 
 
+def sanitize_storage_auth(raw):
+    raw = raw or {}
+    username = str(raw.get("username", "") or "").strip()[:128]
+    password = str(raw.get("password", "") or "")[:128]
+    return {
+        "username": username,
+        "password": password,
+        "updatedAt": float(raw.get("updatedAt") or 0.0),
+    }
+
+
 def load_config():
     cfg = {
         "refreshMs": DEFAULT_REFRESH_MS,
         "led": sanitize_led_config({}),
         "wlan": sanitize_wlan_config({}),
         "storage": sanitize_storage_config({}),
+        "storageAuth": sanitize_storage_auth({}),
     }
     try:
         with open(CONFIG_PATH, "r", encoding="utf-8") as f:
@@ -502,6 +649,7 @@ def load_config():
             cfg["led"] = sanitize_led_config(disk.get("led", {}))
             cfg["wlan"] = sanitize_wlan_config(disk.get("wlan", {}))
             cfg["storage"] = sanitize_storage_config(disk.get("storage", {}))
+            cfg["storageAuth"] = sanitize_storage_auth(disk.get("storageAuth", {}))
     except:
         pass
     return cfg
@@ -514,6 +662,7 @@ def save_config(cfg):
         "led": sanitize_led_config(cfg.get("led", {})),
         "wlan": sanitize_wlan_config(cfg.get("wlan", {})),
         "storage": sanitize_storage_config(cfg.get("storage", {})),
+        "storageAuth": sanitize_storage_auth(cfg.get("storageAuth", {})),
     }
     with open(CONFIG_PATH, "w", encoding="utf-8") as f:
         json.dump(payload, f, ensure_ascii=False, indent=2)
@@ -622,6 +771,30 @@ def update_wlan_config(patch: dict):
     return dict(current)
 
 
+def get_storage_auth_snapshot(mask_password=True):
+    auth = sanitize_storage_auth((SERVER_CONFIG or {}).get("storageAuth", {}))
+    if mask_password:
+        out = {
+            "username": auth.get("username", ""),
+            "hasPassword": bool(auth.get("password")),
+            "updatedAt": auth.get("updatedAt", 0.0),
+        }
+        return out
+    return dict(auth)
+
+
+def update_storage_auth(patch: dict):
+    current = sanitize_storage_auth((SERVER_CONFIG or {}).get("storageAuth", {}))
+    if "username" in patch:
+        current["username"] = str(patch.get("username") or "").strip()[:128]
+    if "password" in patch:
+        current["password"] = str(patch.get("password") or "")[:128]
+    current["updatedAt"] = time.time()
+    SERVER_CONFIG["storageAuth"] = current
+    save_config(SERVER_CONFIG)
+    return get_storage_auth_snapshot(mask_password=True)
+
+
 def get_storage_config_snapshot():
     return get_storage_state()
 
@@ -638,6 +811,7 @@ def update_storage_config(patch: dict):
         if mode in ("auto", "local", "network"):
             requested_mode = mode
     if "networkPath" in patch:
+        current["rawNetworkPath"] = str(patch.get("networkPath") or "").strip()[:256]
         analysis = analyze_network_path_input(patch.get("networkPath"))
         normalized_from = analysis.get("normalizedFrom", "")
         normalized_hint = analysis.get("hint", "")
@@ -693,14 +867,103 @@ def test_esp_host(host, port=80, timeout_seconds=1.5):
         return {"ok": False, "error": str(e)}
 
 
-def remount_network_share(password: str):
+def _read_local_share_credentials_file():
+    user = ""
+    pw = ""
+    try:
+        with open('/etc/samba/.muffi-credentials', 'r', encoding='utf-8', errors='ignore') as cf:
+            for line in cf:
+                line = line.strip()
+                if line.startswith('username=') and not user:
+                    user = line.split('=', 1)[1].strip()[:128]
+                elif line.startswith('password=') and not pw:
+                    pw = line.split('=', 1)[1].strip()[:128]
+    except Exception:
+        pass
+    return user, pw
+
+
+def resolve_share_credentials(share_user: str = "", share_password: str = ""):
+    smb_user = str(share_user or "").strip()[:128]
+    smb_pass = str(share_password or "").strip()[:128]
+
+    # 1) explizite Eingabe gewinnt
+    if smb_user and smb_pass:
+        return smb_user, smb_pass
+
+    # 2) lokale Credentials-Datei
+    file_user, file_pass = _read_local_share_credentials_file()
+    if not smb_user:
+        smb_user = file_user
+    if not smb_pass:
+        smb_pass = file_pass
+    if smb_user and smb_pass:
+        return smb_user, smb_pass
+
+    # 3) gespeicherte UI-Auth in Config
+    saved = sanitize_storage_auth((SERVER_CONFIG or {}).get("storageAuth", {}))
+    if not smb_user:
+        smb_user = saved.get("username", "")
+    if not smb_pass:
+        smb_pass = saved.get("password", "")
+
+    return smb_user, smb_pass
+
+
+def test_share_credentials(username: str, password: str, network_path: str = ""):
+    user = str(username or "").strip()
+    pw = str(password or "")
+    if not user or not pw:
+        return {"ok": False, "error": "Benutzer oder Passwort fehlt"}
+
+    host = ""
+    share = ""
+    req = parse_unc_path(network_path)
+    if req:
+        host = req.get("server", "")
+        share = req.get("share", "")
+
+    if not host or not share:
+        mount_src = get_network_mount_source_for_photo_dir()
+        req2 = parse_unc_path(mount_src) if mount_src else None
+        if req2:
+            host = host or req2.get("server", "")
+            share = share or req2.get("share", "")
+
+    if not host:
+        host = "BOOBIES"
+    if not share:
+        share = "Bilder MUffi"
+
+    cmd = ["smbclient", f"//{host}/{share}", "-U", f"{user}%{pw}", "-c", "ls"]
+    _out, err, rc = _smb_run(cmd, timeout=8)
+    if rc == 0:
+        return {"ok": True, "host": host, "share": share, "message": "SMB Zugang erfolgreich getestet"}
+    return {"ok": False, "host": host, "share": share, "error": (err or "SMB Zugriff fehlgeschlagen")[:300]}
+
+
+def remount_network_share(password: str, share_user: str = "", share_password: str = ""):
     pw = str(password or "")
     if not pw:
         return {"ok": False, "error": "Passwort fehlt"}
 
+    smb_user, smb_pass = resolve_share_credentials(share_user, share_password)
+    if not smb_user or not smb_pass:
+        return {"ok": False, "error": "Share-Zugangsdaten fehlen (Benutzer/Passwort)"}
+
+    cred_script = (
+        "mkdir -p /etc/samba; "
+        "cat > /etc/samba/.muffi-credentials <<'CRED'\n"
+        f"username={smb_user}\n"
+        f"password={smb_pass}\n"
+        "CRED\n"
+        "chmod 600 /etc/samba/.muffi-credentials; "
+    )
+
     cmd = [
         "sudo", "-S", "-p", "",
         "sh", "-lc",
+        cred_script +
         "systemctl reset-failed mnt-muffi.mount mnt-muffi.automount >/dev/null 2>&1 || true; "
         "umount /mnt/muffi >/dev/null 2>&1 || true; "
         "mount /mnt/muffi",
@@ -722,10 +985,11 @@ def remount_network_share(password: str):
         msg = (proc.stderr or proc.stdout or "Remount fehlgeschlagen").strip()
         return {"ok": False, "error": msg[:300]}
 
+    update_storage_auth({"username": smb_user, "password": smb_pass})
     return {"ok": True, "message": "Share neu verbunden"}
 
 
-def switch_network_share(password: str, network_path_value):
+def switch_network_share(password: str, network_path_value, share_user: str = "", share_password: str = ""):
     pw = str(password or "")
     if not pw:
         return {"ok": False, "error": "Passwort fehlt"}
@@ -737,11 +1001,28 @@ def switch_network_share(password: str, network_path_value):
     target_source = f"//{req['server']}/{req['share']}"
     target_source_fstab = target_source.replace(" ", "\\040")
 
+    smb_user, smb_pass = resolve_share_credentials(share_user, share_password)
+
+    if not smb_user or not smb_pass:
+        return {"ok": False, "error": "Share-Zugangsdaten fehlen (username/password)"}
+
     fstab_script = r'''
 import sys, os, shutil, datetime
 
 target = sys.argv[1]
+cred_user = sys.argv[2]
+cred_pass = sys.argv[3]
 path = '/etc/fstab'
+cred_file = '/etc/samba/.muffi-credentials'
+
+os.makedirs('/etc/samba', exist_ok=True)
+with open(cred_file, 'w', encoding='utf-8') as cf:
+    cf.write(f"username={cred_user}\n")
+    cf.write(f"password={cred_pass}\n")
+os.chmod(cred_file, 0o600)
+
+os.makedirs('/mnt/muffi', exist_ok=True)
+
 with open(path, 'r', encoding='utf-8', errors='ignore') as f:
     lines = f.readlines()
 
@@ -760,7 +1041,11 @@ for line in lines:
     out.append(line)
 
 if not changed:
-    raise SystemExit('Kein /mnt/muffi Eintrag in /etc/fstab gefunden')
+    out.append(
+        f"{target}\t/mnt/muffi\tcifs\t"
+        f"credentials={cred_file},uid=1000,gid=1000,iocharset=utf8,vers=3.0,_netdev,nofail,x-systemd.automount\t0\t0\n"
+    )
+    changed = True
 
 backup = f"{path}.bak-{datetime.datetime.now().strftime('%Y%m%d-%H%M%S')}"
 shutil.copy2(path, backup)
@@ -770,14 +1055,14 @@ print(backup)
 '''
 
     shell_cmd = (
-        "python3 - <<'PY' \"$1\"\n" + fstab_script + "\nPY\n"
+        "python3 - <<'PY' \"$1\" \"$2\" \"$3\"\n" + fstab_script + "\nPY\n"
         "systemctl daemon-reload >/dev/null 2>&1 || true; "
         "systemctl reset-failed mnt-muffi.mount mnt-muffi.automount >/dev/null 2>&1 || true; "
         "umount -l /mnt/muffi >/dev/null 2>&1 || true; "
         "mount /mnt/muffi"
     )
 
-    cmd = ["sudo", "-S", "-p", "", "sh", "-lc", shell_cmd, "--", target_source_fstab]
+    cmd = ["sudo", "-S", "-p", "", "sh", "-lc", shell_cmd, "--", target_source_fstab, smb_user, smb_pass]
     try:
         proc = subprocess.run(
             cmd,
@@ -798,6 +1083,7 @@ print(backup)
         msg = (proc.stderr or proc.stdout or "Share-Wechsel fehlgeschlagen").strip()
         return {"ok": False, "error": msg[:500]}
 
+    update_storage_auth({"username": smb_user, "password": smb_pass})
     return {"ok": True, "message": f"Share gewechselt auf {target_source}", "targetSource": target_source}
 
 
@@ -1396,6 +1682,10 @@ class FrameHandler(BaseHTTPRequestHandler):
             self.send_json(get_storage_diagnostics())
             return
 
+        if path == "api/storage/auth":
+            self.send_json(get_storage_auth_snapshot(mask_password=True))
+            return
+
         if path == "api/upload-status":
             self.send_json(get_upload_status_snapshot())
             return
@@ -1411,6 +1701,39 @@ class FrameHandler(BaseHTTPRequestHandler):
         if path == "api/wlan":
             self.send_json(get_wlan_config_snapshot(mask_password=False))
             return
+
+        # ─── SMB Network Browser API ────────────────────────────────────────────
+        if path == "api/smb/discover":
+            hosts = smb_discover_hosts(timeout=5)
+            self.send_json({"hosts": hosts})
+            return
+
+        if path == "api/smb/shares":
+            qs_params = parse_qs(parsed.query or "")
+            host     = qs_params.get("host", [""])[0].strip()
+            user     = qs_params.get("user", [""])[0].strip()
+            pw       = qs_params.get("pw",   [""])[0].strip()
+            if not host:
+                self.send_json({"error": "Missing host", "shares": []}, 400)
+                return
+            shares, ok, err = smb_list_shares(host, user, pw)
+            self.send_json({"shares": shares, "ok": ok, "error": err})
+            return
+
+        if path == "api/smb/browse":
+            qs_params   = parse_qs(parsed.query or "")
+            host        = qs_params.get("host",  [""])[0].strip()
+            share       = qs_params.get("share", [""])[0].strip()
+            folder_path = qs_params.get("path",  [""])[0].strip()
+            user        = qs_params.get("user",  [""])[0].strip()
+            pw          = qs_params.get("pw",    [""])[0].strip()
+            if not host or not share:
+                self.send_json({"error": "Missing host or share", "entries": []}, 400)
+                return
+            entries, ok, err = smb_browse_folder(host, share, folder_path, user, pw)
+            self.send_json({"entries": entries, "ok": ok, "error": err})
+            return
+        # ─── end SMB Network Browser API ──────────────────────────────────────────
 
         # Dateiliste: /list bleibt schlank für ESP, /api/list ist voll für Web/Tools
         if path == "list":
@@ -1590,6 +1913,54 @@ class FrameHandler(BaseHTTPRequestHandler):
             })
             return
 
+        if path == "api/storage/auth":
+            length = int(self.headers.get("Content-Length", "0") or "0")
+            body = self.rfile.read(length) if length > 0 else b""
+
+            try:
+                payload = json.loads(body.decode("utf-8") or "{}")
+            except Exception as e:
+                self.send_json({"error": f"Ungültige Daten: {e}"}, status=400)
+                return
+
+            username = str((payload or {}).get("username") or "").strip()
+            password_share = str((payload or {}).get("password") or "")
+
+            if not username or not password_share:
+                self.send_json({"ok": False, "error": "Benutzer und Passwort sind erforderlich"}, status=400)
+                return
+
+            update_storage_auth({"username": username, "password": password_share})
+            self.send_json({"ok": True, **get_storage_auth_snapshot(mask_password=True)})
+            return
+
+        if path == "api/storage/auth/test":
+            length = int(self.headers.get("Content-Length", "0") or "0")
+            body = self.rfile.read(length) if length > 0 else b""
+
+            try:
+                payload = json.loads(body.decode("utf-8") or "{}")
+            except Exception as e:
+                self.send_json({"error": f"Ungültige Daten: {e}"}, status=400)
+                return
+
+            username = str((payload or {}).get("username") or "").strip()
+            password_share = str((payload or {}).get("password") or "")
+            network_path = str((payload or {}).get("networkPath") or "")
+
+            if not username or not password_share:
+                saved = sanitize_storage_auth((SERVER_CONFIG or {}).get("storageAuth", {}))
+                username = username or saved.get("username", "")
+                password_share = password_share or saved.get("password", "")
+
+            result = test_share_credentials(username, password_share, network_path)
+            if not result.get("ok"):
+                self.send_json({"ok": False, "error": result.get("error", "SMB Test fehlgeschlagen"), "host": result.get("host", ""), "share": result.get("share", "")}, status=502)
+                return
+
+            self.send_json({"ok": True, "message": result.get("message", "SMB Test ok"), "host": result.get("host", ""), "share": result.get("share", "")})
+            return
+
         if path == "api/storage/remount":
             length = int(self.headers.get("Content-Length", "0") or "0")
             body = self.rfile.read(length) if length > 0 else b""
@@ -1600,7 +1971,11 @@ class FrameHandler(BaseHTTPRequestHandler):
                 self.send_json({"error": f"Ungültige Daten: {e}"}, status=400)
                 return
 
-            result = remount_network_share((payload or {}).get("password"))
+            result = remount_network_share(
+                (payload or {}).get("password"),
+                (payload or {}).get("shareUser"),
+                (payload or {}).get("sharePassword"),
+            )
             if not result.get("ok"):
                 self.send_json({"ok": False, "error": result.get("error", "Remount fehlgeschlagen")}, status=403)
                 return
@@ -1619,7 +1994,12 @@ class FrameHandler(BaseHTTPRequestHandler):
                 return
 
             raw_path = str((payload or {}).get("networkPath") or "")
-            result = switch_network_share((payload or {}).get("password"), raw_path)
+            result = switch_network_share(
+                (payload or {}).get("password"),
+                raw_path,
+                (payload or {}).get("shareUser"),
+                (payload or {}).get("sharePassword"),
+            )
             if not result.get("ok"):
                 self.send_json({"ok": False, "error": result.get("error", "Share-Wechsel fehlgeschlagen")}, status=403)
                 return

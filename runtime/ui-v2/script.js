@@ -73,6 +73,7 @@ async function jpost(url, body) { const r = await fetch(url, { method:'POST', he
 let currentFrame = '';
 let storageState = null;
 let storageAutoBusy = false;
+let shareAuthCache = { username: '', password: '' };
 
 function storageHealthLabel(s) {
   if (!s) return '-';
@@ -101,7 +102,7 @@ function refreshStorageUi(state) {
   $('#storage-local-path').textContent = state.local?.path || '-';
   const networkInput = $('#storage-network-path');
   if (networkInput && document.activeElement !== networkInput) {
-    networkInput.value = state.network?.path || '/mnt/muffi';
+    networkInput.value = state.rawNetworkPath || state.network?.path || '/mnt/muffi';
   }
   $('#storage-local-status').textContent = storageHealthLabel(state.local);
   $('#storage-network-status').textContent = storageHealthLabel(state.network);
@@ -173,6 +174,39 @@ function isCheckOk(diag, key) {
   return !!item?.ok;
 }
 
+function getShareCredentials() {
+  const user = ($('#smb-user')?.value || '').trim() || (shareAuthCache.username || '').trim();
+  const pw = ($('#smb-pw')?.value || '').trim() || (shareAuthCache.password || '').trim();
+  return {
+    shareUser: user,
+    sharePassword: pw,
+  };
+}
+
+async function loadShareAuthIntoUi() {
+  try {
+    const d = await jget('/api/storage/auth');
+    shareAuthCache.username = (d.username || '').trim();
+    if ($('#smb-user') && !$('#smb-user').value) $('#smb-user').value = shareAuthCache.username;
+  } catch (_) {}
+}
+
+async function saveShareAuthFromUi() {
+  const username = ($('#smb-user')?.value || '').trim();
+  const password = ($('#smb-pw')?.value || '').trim();
+  if (!username || !password) throw new Error('Bitte Benutzer und Passwort eingeben.');
+
+  await jpost('/api/storage/auth', { username, password });
+  const test = await jpost('/api/storage/auth/test', {
+    username,
+    password,
+    networkPath: ($('#storage-network-path')?.value || '').trim(),
+  });
+
+  shareAuthCache = { username, password };
+  return test;
+}
+
 async function runStorageAutoConnect() {
   if (storageAutoBusy) return;
   storageAutoBusy = true;
@@ -191,7 +225,11 @@ async function runStorageAutoConnect() {
       setStorageAutoMsg('🔐 Share muss umgestellt werden. Bitte Passwort eingeben …');
       adminPw = await askAdminPassword();
       if (!adminPw) throw new Error('Abgebrochen (kein Passwort eingegeben).');
-      await jpost('/api/storage/share-switch', { password: adminPw, networkPath: raw });
+      await jpost('/api/storage/share-switch', {
+        password: adminPw,
+        networkPath: raw,
+        ...getShareCredentials(),
+      });
     } else {
       await jpost('/api/storage', { mode: 'auto', networkPath: raw });
     }
@@ -201,7 +239,7 @@ async function runStorageAutoConnect() {
       adminPw = await askAdminPassword();
       if (!adminPw) throw new Error('Abgebrochen (kein Passwort eingegeben).');
     }
-    await jpost('/api/storage/remount', { password: adminPw });
+    await jpost('/api/storage/remount', { password: adminPw, ...getShareCredentials() });
 
     setStorageAutoMsg('✅ Prüfe Verbindung und aktiviere Netzwerkordner …');
     const diag = await refreshStorageDiagnostics();
@@ -410,7 +448,7 @@ $('#remount-network-btn')?.addEventListener('click', async () => {
       $('#storage-msg').textContent = 'ℹ️ Abgebrochen.';
       return;
     }
-    const r = await jpost('/api/storage/remount', { password: pw });
+    const r = await jpost('/api/storage/remount', { password: pw, ...getShareCredentials() });
     await refreshServer();
     const diag = await refreshStorageDiagnostics();
     $('#storage-msg').textContent = `✅ ${r.message || 'Share neu verbunden'}` + (diag?.reason ? ` · ${diag.reason}` : '');
@@ -451,7 +489,11 @@ $('#share-switch-check-btn')?.addEventListener('click', async () => {
       return;
     }
 
-    const r = await jpost('/api/storage/share-switch', { password: pw, networkPath: raw });
+    const r = await jpost('/api/storage/share-switch', {
+      password: pw,
+      networkPath: raw,
+      ...getShareCredentials(),
+    });
     storageState = r;
     refreshStorageUi(storageState);
     const diag = await refreshStorageDiagnostics();
@@ -495,4 +537,254 @@ $('#upload-form')?.addEventListener('submit', (e) => {
   xhr.send(file);
 });
 
-(async function init(){ await refreshServer(); const d = await refreshStorageDiagnostics(); setStorageAutoMsg(d?.ok ? '✅ Verbindung ist bereit. Du kannst direkt automatisch verbinden.' : 'Assistent bereit. Pfad eintragen und auf „Automatisch verbinden“ klicken.'); await ledRefresh(); await wlanRefresh(); await refreshMediaAndFrame(); setInterval(refreshMediaAndFrame, 3500); setInterval(ledRefresh, 2500); setInterval(refreshServer, 10000); })();
+(async function init(){ await refreshServer(); await loadShareAuthIntoUi(); const d = await refreshStorageDiagnostics(); setStorageAutoMsg(d?.ok ? '✅ Verbindung ist bereit. Du kannst direkt automatisch verbinden.' : 'Assistent bereit. Pfad eintragen und auf „Automatisch verbinden“ klicken.'); await ledRefresh(); await wlanRefresh(); await refreshMediaAndFrame(); setInterval(refreshMediaAndFrame, 3500); setInterval(ledRefresh, 2500); setInterval(refreshServer, 10000); })();
+
+// ===== SMB Network Browser =====
+
+const smbState = {
+  host: null,     // { ip, name }
+  share: null,    // { name, type, comment }
+  pathParts: [],  // folder path segments (array of strings)
+  user: () => ($('#smb-user')?.value || '').trim() || (shareAuthCache.username || '').trim(),
+  pw:   () => ($('#smb-pw')?.value   || '').trim() || (shareAuthCache.password || '').trim(),
+};
+
+function smbCurrentLinuxPath() {
+  if (!smbState.host || !smbState.share) return '';
+  // Build UNC: \\server\share\sub\folder
+  const parts = ['\\\\' + smbState.host.name, smbState.share.name, ...smbState.pathParts];
+  return parts.join('\\');
+}
+
+function smbUpdateActionBar() {
+  const bar = $('#smb-action-bar');
+  const preview = $('#smb-select-path-preview');
+  if (!smbState.share) {
+    bar.style.display = 'none';
+    return;
+  }
+  bar.style.display = 'flex';
+  preview.textContent = smbCurrentLinuxPath();
+}
+
+function smbUpdateBreadcrumb() {
+  const bc = $('#smb-breadcrumb');
+  bc.innerHTML = '';
+  function addCrumb(label, onclick, active = false) {
+    const sep = document.createElement('span');
+    sep.className = 'smb-breadcrumb-sep';
+    sep.textContent = '/';
+    const sp = document.createElement('span');
+    sp.className = active ? 'smb-bc-active' : '';
+    sp.textContent = label;
+    if (!active) sp.onclick = onclick;
+    if (bc.childNodes.length) bc.appendChild(sep);
+    bc.appendChild(sp);
+  }
+  addCrumb('🌐 Netzwerk', () => smbGoDiscover(), !smbState.host);
+  if (smbState.host) {
+    addCrumb(smbState.host.name, () => smbGoShares(), !smbState.share);
+  }
+  if (smbState.share) {
+    addCrumb(smbState.share.name, () => smbGoFolder([]), smbState.pathParts.length === 0);
+    smbState.pathParts.forEach((part, i) => {
+      const idx = i;
+      addCrumb(part, () => smbGoFolder(smbState.pathParts.slice(0, idx + 1)), idx === smbState.pathParts.length - 1);
+    });
+  }
+}
+
+function smbSetStatus(msg, isError = false) {
+  const el = $('#smb-status');
+  el.textContent = msg;
+  el.className = 'smb-status' + (isError ? ' smb-error' : '');
+}
+
+function smbRenderList(items) {
+  const content = $('#smb-content');
+  content.innerHTML = '';
+  if (!items.length) {
+    content.innerHTML = '<div class="smb-empty">Nichts gefunden.</div>';
+    return;
+  }
+  items.forEach(item => {
+    const div = document.createElement('div');
+    div.className = 'smb-item';
+    div.innerHTML = `<span class="smb-item-icon">${item.icon}</span>
+      <span class="smb-item-label">${esc(item.label)}</span>
+      ${item.sub ? `<span class="smb-item-sub">${esc(item.sub)}</span>` : ''}`;
+    div.onclick = item.onclick;
+    content.appendChild(div);
+  });
+}
+
+async function smbGoDiscover() {
+  smbState.host = null;
+  smbState.share = null;
+  smbState.pathParts = [];
+  smbUpdateBreadcrumb();
+  smbUpdateActionBar();
+  smbSetStatus('⏳ Suche Netzwerkhosts … (bis ~5 Sek.)');
+  $('#smb-content').innerHTML = '';
+  try {
+    const data = await jget('/api/smb/discover');
+    const hosts = Array.isArray(data.hosts) ? [...data.hosts] : [];
+
+    // Fallback: Host aus manuell eingetragenem UNC-Pfad anbieten
+    const raw = ($('#storage-network-path')?.value || '').trim();
+    const m = raw.match(/^\\\\([^\\]+)\\/);
+    const hostFromPath = (m?.[1] || '').trim();
+    if (!hosts.length && hostFromPath) {
+      hosts.push({ ip: hostFromPath, name: hostFromPath });
+    }
+
+    smbSetStatus(hosts.length ? `${hosts.length} Host(s) gefunden.` : '');
+    if (!hosts.length) {
+      $('#smb-content').innerHTML = '<div class="smb-empty">Keine SMB-Hosts gefunden. Trag oben einen UNC-Pfad ein (\\\\SERVER\\Share) oder prüfe SMB im Netzwerk.</div>';
+      return;
+    }
+    smbRenderList(hosts.map(h => ({
+      icon: '🖥️',
+      label: h.name !== h.ip ? `${h.name} (${h.ip})` : h.ip,
+      sub: '',
+      onclick: () => { smbState.host = h; smbGoShares(); }
+    })));
+  } catch (e) {
+    smbSetStatus('❌ Fehler: ' + e.message, true);
+  }
+}
+
+async function smbGoShares() {
+  smbState.share = null;
+  smbState.pathParts = [];
+  smbUpdateBreadcrumb();
+  smbUpdateActionBar();
+  smbSetStatus(`⏳ Lade Shares von ${smbState.host.name} …`);
+  $('#smb-content').innerHTML = '';
+  const url = `/api/smb/shares?host=${encodeURIComponent(smbState.host.ip)}`
+    + (smbState.user() ? `&user=${encodeURIComponent(smbState.user())}&pw=${encodeURIComponent(smbState.pw())}` : '');
+  try {
+    const data = await jget(url);
+    smbSetStatus(data.ok ? `${data.shares.length} Share(s) gefunden.` : (data.error || 'Keine Shares erreichbar.'));
+    if (!data.shares.length) {
+      $('#smb-content').innerHTML = `<div class="smb-empty">Keine Disk-Shares gefunden. ${data.error ? '(' + esc(data.error) + ')' : ''}</div>`;
+      return;
+    }
+    smbRenderList(data.shares.map(s => ({
+      icon: '📁',
+      label: s.name,
+      sub: s.comment || '',
+      onclick: () => { smbState.share = s; smbGoFolder([]); }
+    })));
+  } catch (e) {
+    smbSetStatus('❌ Fehler: ' + e.message, true);
+  }
+}
+
+async function smbGoFolder(pathParts) {
+  smbState.pathParts = pathParts;
+  smbUpdateBreadcrumb();
+  smbUpdateActionBar();
+  const displayPath = pathParts.length ? pathParts.join('\\') : '(Wurzel)';
+  smbSetStatus(`⏳ Lade Ordner: ${smbState.share.name}\\${displayPath} …`);
+  $('#smb-content').innerHTML = '';
+  const folderPath = pathParts.join('/');
+  const url = `/api/smb/browse?host=${encodeURIComponent(smbState.host.ip)}&share=${encodeURIComponent(smbState.share.name)}`
+    + `&path=${encodeURIComponent(folderPath)}`
+    + (smbState.user() ? `&user=${encodeURIComponent(smbState.user())}&pw=${encodeURIComponent(smbState.pw())}` : '');
+  try {
+    const data = await jget(url);
+    const dirs = data.entries.filter(e => e.type === 'dir');
+    const files = data.entries.filter(e => e.type === 'file');
+    smbSetStatus(data.ok
+      ? `${dirs.length} Ordner, ${files.length} Dateien.`
+      : (data.error || 'Kein Zugriff.'));
+    if (!data.entries.length) {
+      $('#smb-content').innerHTML = '<div class="smb-empty">Leerer Ordner oder kein Zugriff.</div>';
+      return;
+    }
+    const items = [
+      ...dirs.map(d => ({
+        icon: '📂',
+        label: d.name,
+        sub: '',
+        onclick: () => smbGoFolder([...pathParts, d.name])
+      })),
+      ...files.map(f => ({
+        icon: '🖼️',
+        label: f.name,
+        sub: '',
+        onclick: null
+      }))
+    ];
+    smbRenderList(items);
+  } catch (e) {
+    smbSetStatus('❌ Fehler: ' + e.message, true);
+  }
+}
+
+function setSmbModalOpen(open) {
+  const modal = $('#smb-modal');
+  const btn = $('#smb-browse-open-btn');
+  if (!modal) return;
+
+  if (open) {
+    modal.style.display = 'grid';
+    if (btn) btn.textContent = 'Netzwerk schließen';
+  } else {
+    modal.style.display = 'none';
+    if (btn) btn.textContent = '🔍 Netzwerk';
+  }
+}
+
+// Open/Close modal via same button
+$('#smb-browse-open-btn')?.addEventListener('click', () => {
+  const modal = $('#smb-modal');
+  const isOpen = !!modal && modal.style.display === 'grid';
+  if (isOpen) {
+    setSmbModalOpen(false);
+    return;
+  }
+  setSmbModalOpen(true);
+  loadShareAuthIntoUi();
+  smbGoDiscover();
+});
+
+$('#smb-auth-save-btn')?.addEventListener('click', async () => {
+  try {
+    smbSetStatus('⏳ Zugangsdaten werden getestet …');
+    const r = await saveShareAuthFromUi();
+    smbSetStatus(`✅ ${r.message || 'SMB Test erfolgreich'} (${r.host || '-'} / ${r.share || '-'})`);
+    $('#storage-msg').textContent = '✅ Share-Zugangsdaten gespeichert.';
+  } catch (e) {
+    smbSetStatus('❌ ' + (e?.message || e), true);
+    $('#storage-msg').textContent = '❌ Share-Zugangsdaten konnten nicht gespeichert werden: ' + (e?.message || e);
+  }
+});
+
+$('#smb-user')?.addEventListener('input', () => {
+  shareAuthCache.username = ($('#smb-user')?.value || '').trim();
+});
+
+$('#smb-pw')?.addEventListener('input', () => {
+  shareAuthCache.password = ($('#smb-pw')?.value || '').trim();
+});
+
+// Close modal
+$('#smb-modal-close')?.addEventListener('click', () => {
+  setSmbModalOpen(false);
+});
+$('#smb-modal')?.addEventListener('click', (e) => {
+  if (e.target === $('#smb-modal')) setSmbModalOpen(false);
+});
+
+// Select current folder → fill networkPath input and close modal
+$('#smb-select-here-btn')?.addEventListener('click', () => {
+  const unc = smbCurrentLinuxPath();
+  if (!unc) return;
+  const inp = $('#storage-network-path');
+  if (inp) inp.value = unc;
+  setSmbModalOpen(false);
+  setStorageAutoMsg('📋 Pfad übernommen: ' + unc + ' → Jetzt „Automatisch verbinden" klicken.');
+});
+// ===== end SMB Network Browser =====

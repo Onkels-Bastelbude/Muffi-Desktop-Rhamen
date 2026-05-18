@@ -24,3 +24,32 @@ a{color:#ffd3a5}.topbar{display:flex;justify-content:space-between;gap:10px;alig
 .view{display:none}.view.active{display:block}.media-grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(120px,1fr));gap:8px;margin-top:12px}.media-item{border:1px solid #6b4a3c;border-radius:10px;padding:6px;background:#1b1313}.media-item img{width:100%;height:90px;object-fit:cover;border-radius:8px;background:#000}.media-item .n{font-size:12px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
 @media (max-width:979px){.menu-list.is-collapsed{display:none}}
 @media (min-width:980px){.layout{grid-template-columns:280px 1fr 280px;grid-template-areas:"preview workspace menu";min-height:calc(100vh - 86px)}#preview-panel{grid-area:preview}#workspace-panel{grid-area:workspace}#menu-panel{grid-area:menu}.mobile-toggle{display:none}.storage-grid{grid-template-columns:1fr 1fr}}
+
+/* ===== SMB Network Browser Modal ===== */
+#smb-modal{position:fixed;inset:0;background:#000a;display:grid;place-items:center;z-index:10000}
+#smb-modal-box{width:min(96vw,520px);max-height:85vh;background:#1e1410;border:1px solid #7c5039;border-radius:16px;display:flex;flex-direction:column;box-shadow:0 8px 40px #0009}
+#smb-modal-header{display:flex;justify-content:space-between;align-items:center;padding:12px 16px;border-bottom:1px solid #4a3020;flex-shrink:0}
+#smb-modal-title{font-weight:700;font-size:15px;color:#f2d3a0}
+#smb-modal-close{background:transparent;border:0;color:#c9a88a;font-size:18px;cursor:pointer;padding:2px 6px;border-radius:8px}
+#smb-modal-close:hover{background:#4a3020}
+#smb-auth-details{padding:8px 16px;border-bottom:1px solid #3a2414;flex-shrink:0;font-size:13px;color:var(--muted)}
+#smb-auth-details summary{cursor:pointer;user-select:none}
+.smb-auth-row{display:flex;gap:8px;margin-top:8px}
+.smb-auth-row input{flex:1;min-width:0;font-size:13px;padding:7px 10px}
+.smb-breadcrumb{padding:8px 16px;font-size:12px;color:#c9a88a;border-bottom:1px solid #3a2414;flex-shrink:0;min-height:34px;display:flex;align-items:center;flex-wrap:wrap;gap:4px}
+.smb-breadcrumb-sep{color:#6b4a3c;margin:0 2px}
+.smb-breadcrumb span{cursor:pointer;border-radius:6px;padding:2px 6px}
+.smb-breadcrumb span:hover{background:#3a2414;color:#f2d3a0}
+.smb-breadcrumb span.smb-bc-active{color:#f2d3a0;cursor:default}
+.smb-status{padding:10px 16px;font-size:13px;color:var(--muted);min-height:36px;flex-shrink:0}
+.smb-content{overflow-y:auto;flex:1;padding:6px 8px}
+.smb-item{display:flex;align-items:center;gap:10px;padding:9px 10px;border-radius:10px;cursor:pointer;font-size:14px;transition:background .12s}
+.smb-item:hover{background:#3a2414}
+.smb-item-icon{font-size:18px;flex-shrink:0;width:26px;text-align:center}
+.smb-item-label{flex:1;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.smb-item-sub{font-size:11px;color:var(--muted);margin-left:auto;white-space:nowrap}
+.smb-action-bar{padding:10px 16px;border-top:1px solid #4a3020;display:flex;align-items:center;gap:10px;flex-shrink:0}
+#smb-select-here-btn{white-space:nowrap;background:var(--accent);color:#2a1b11;font-weight:700}
+.smb-path-preview{font-size:12px;color:var(--muted);overflow:hidden;text-overflow:ellipsis;white-space:nowrap;flex:1}
+.smb-empty{padding:20px;text-align:center;color:var(--muted);font-size:13px}
+.smb-error{padding:12px 16px;color:#d96c5f;font-size:13px}
