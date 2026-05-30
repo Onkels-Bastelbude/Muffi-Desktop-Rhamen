@@ -30,11 +30,11 @@ System läuft und ist aktuell funktionsfähig.
 - Web-LED-Steuerung reagiert (On/Off, Helligkeit, Farbe, Reihenfolge)
 
 ### Weboberfläche
-- Dashboard (neu, Version-UI): `http://<server>:8765/` (direkt auch unter `http://<server>:8765/version/`)
+- Dashboard (neu, UI v2): `http://<server>:8765/`
 - Klassische Oberfläche (Fallback): `http://<server>:8765/classic`
 - Galerie: `http://<server>:8765/gallery`
 
-### Version-UI – neue Module (Stand 2026-05-17)
+### UI v2 – neue Module (Stand 2026-05-17)
 - Medien mit klarer Trennung:
   - **Lokal (stabil)**
   - **Netzwerkordner**

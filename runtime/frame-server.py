@@ -24,8 +24,8 @@ MIN_REFRESH_MS = 10 * 1000
 MAX_REFRESH_MS = 24 * 60 * 60 * 1000
 MAX_UPLOAD_BYTES = 30 * 1024 * 1024
 RUNTIME_DIR = os.path.dirname(os.path.realpath(__file__))
-UI_DIR = os.path.join(RUNTIME_DIR, "version")
-UI_FILES = {
+UI_V2_DIR = os.path.join(RUNTIME_DIR, "ui-v2")
+UI_V2_FILES = {
     "index.html": "text/html; charset=utf-8",
     "styles.css": "text/css; charset=utf-8",
     "script.js": "application/javascript; charset=utf-8",
@@ -1903,13 +1903,13 @@ class FrameHandler(BaseHTTPRequestHandler):
         self.end_headers()
         self.wfile.write(out)
 
-    def send_ui_file(self, filename):
-        content_type = UI_FILES.get(filename)
+    def send_ui_v2_file(self, filename):
+        content_type = UI_V2_FILES.get(filename)
         if not content_type:
             self.send_error(404, "Not found")
             return
 
-        filepath = os.path.join(UI_DIR, filename)
+        filepath = os.path.join(UI_V2_DIR, filename)
         if not os.path.isfile(filepath):
             self.send_error(404, "Not found")
             return
@@ -2337,32 +2337,20 @@ class FrameHandler(BaseHTTPRequestHandler):
         raw_path = parsed.path
         path = unquote(raw_path.strip("/"))
 
-        # Neue UI ist Standard-Startseite
+        # UI V2 ist jetzt Standard-Startseite
         if path in ("", "index.html"):
-            self.send_ui_file("index.html")
+            self.send_ui_v2_file("index.html")
             return
 
-        if path in ("version", "version/"):
-            self.send_ui_file("index.html")
-            return
-
-        if path.startswith("version/"):
-            filename = path[len("version/"):].strip()
-            if filename == "":
-                filename = "index.html"
-            self.send_ui_file(filename)
-            return
-
-        # Legacy alias (abwärtskompatibel)
         if path in ("ui-v2", "ui-v2/"):
-            self.send_ui_file("index.html")
+            self.send_ui_v2_file("index.html")
             return
 
         if path.startswith("ui-v2/"):
             filename = path[len("ui-v2/"):].strip()
             if filename == "":
                 filename = "index.html"
-            self.send_ui_file(filename)
+            self.send_ui_v2_file(filename)
             return
 
         file_info = list_photos()
