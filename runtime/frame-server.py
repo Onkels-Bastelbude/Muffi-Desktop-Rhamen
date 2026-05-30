@@ -1175,6 +1175,24 @@ def start_update_job():
         try:
             install_dir = os.environ.get("MUFFI_INSTALL_DIR") or os.path.abspath(os.path.join(RUNTIME_DIR, ".."))
             old_rev = ""
+
+            def _rev_label(rev: str) -> str:
+                if not rev:
+                    return "unknown"
+                try:
+                    dt = subprocess.run(
+                        ["git", "-C", install_dir, "show", "-s", "--format=%cd", "--date=format-local:%Y%m%d-%H%M", rev],
+                        capture_output=True,
+                        text=True,
+                        timeout=4,
+                        check=False,
+                    )
+                    if dt.returncode == 0 and (dt.stdout or "").strip():
+                        return (dt.stdout or "").strip()
+                except Exception:
+                    pass
+                return "unknown"
+
             try:
                 gr = subprocess.run(
                     ["git", "-C", install_dir, "rev-parse", "--short", "HEAD"],
@@ -1228,9 +1246,11 @@ def start_update_job():
                     pass
 
                 if old_rev and new_rev and old_rev == new_rev:
-                    _update_append_line(f"[info] Version ist aktuell ({new_rev})")
+                    _update_append_line(f"[info] Version ist aktuell ({_rev_label(new_rev)})")
                 elif new_rev:
-                    _update_append_line(f"[info] Update angewendet: {old_rev or 'none'} -> {new_rev}")
+                    old_v = _rev_label(old_rev) if old_rev else "none"
+                    new_v = _rev_label(new_rev)
+                    _update_append_line(f"[info] Update angewendet: {old_v} -> {new_v}")
 
             if tmp_script and os.path.exists(tmp_script):
                 try:

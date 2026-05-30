@@ -16,6 +16,18 @@ log() { printf "${BLU}[+]${NC} %s\n" "$*"; }
 ok()  { printf "${GRN}[✓]${NC} %s\n" "$*"; }
 die() { printf "${RED}[✗] %s${NC}\n" "$*" >&2; exit 1; }
 
+git_version_label() {
+  local rev="$1"
+  local label=""
+  if [[ -n "$rev" ]]; then
+    label="$(git -C "$INSTALL_DIR" show -s --format='%cd' --date=format-local:'%Y%m%d-%H%M' "$rev" 2>/dev/null || true)"
+  fi
+  if [[ -z "$label" ]]; then
+    label="unknown"
+  fi
+  printf "%s" "$label"
+}
+
 ensure_arduino_cli() {
   if command -v arduino-cli >/dev/null 2>&1; then
     ok "arduino-cli vorhanden ($(arduino-cli version | head -n1))"
@@ -97,10 +109,13 @@ git -C "$INSTALL_DIR" fetch --all --prune -q
 git -C "$INSTALL_DIR" reset --hard origin/main -q
 NEW_REV="$(git -C "$INSTALL_DIR" rev-parse --short HEAD 2>/dev/null || true)"
 
+OLD_VER="$(git_version_label "$OLD_REV")"
+NEW_VER="$(git_version_label "$NEW_REV")"
+
 if [[ -n "$OLD_REV" && "$OLD_REV" = "$NEW_REV" ]]; then
-  log "Version ist aktuell ($NEW_REV)"
+  log "Version ist aktuell ($NEW_VER)"
 else
-  log "Update angewendet: ${OLD_REV:-none} -> ${NEW_REV:-unknown}"
+  log "Update angewendet: ${OLD_VER:-none} -> ${NEW_VER:-unknown}"
 fi
 
 log "Python-Umgebung aktualisieren"
