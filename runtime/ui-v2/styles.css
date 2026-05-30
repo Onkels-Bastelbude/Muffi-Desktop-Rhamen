@@ -62,3 +62,6 @@ a{color:#ffd3a5}.topbar{display:flex;justify-content:space-between;gap:10px;alig
 
 .step-frame{margin-top:8px;padding:10px;border:1px solid #7c5a3b;border-radius:12px;background:linear-gradient(180deg,#21180f,#17100b)}
 .step-frame-title{font-size:12px;letter-spacing:.08em;text-transform:uppercase;color:#d8bc96;margin-bottom:6px}
+.step-btn{position:relative;border:1px solid #8e6642;background:linear-gradient(180deg,#5a3926,#3b2619);box-shadow:inset 0 0 0 1px #2c1c12, inset 0 0 14px #ffb15a33, 0 0 10px #0008;outline:1px solid #2b1b11;outline-offset:2px;font-weight:700}
+.step-btn:hover{border-color:#d29356;box-shadow:inset 0 0 0 1px #3a2518,inset 0 0 18px #ffb15a55,0 0 12px #ff9f3a55}
+.step-btn:disabled{opacity:.7}
