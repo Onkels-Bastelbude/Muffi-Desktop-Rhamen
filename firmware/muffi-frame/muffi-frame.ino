@@ -670,51 +670,60 @@ bool refreshMotorFromServer() {
 void servoMove(int position) {
   if (!motorEnabled) return;
 
-  int target = position;
-  if (target < 500) target = 500;
-  if (target > 8000) target = 8000;
+  int targetPulse = position;
+  if (targetPulse < 500) targetPulse = 500;
+  if (targetPulse > 8000) targetPulse = 8000;
 
-  int from = currentServoPulse;
-  if (from < 500 || from > 8000) from = target;
+  int startPulse = currentServoPulse;
+  if (startPulse < 500 || startPulse > 8000) startPulse = targetPulse;
 
-  // Sichtbare Speed-Steuerung: sichere 20ms-Frames für Servo-Updates.
-  // UI liefert effektiv 180..1200ms (Step 10..1).
+  // UI liefert moveDelayMs ~180..1200 (Step 10..1) -> auf Speed-Step 1..10 abbilden
   int speedRef = int(servoMoveDelayMs);
   if (speedRef < 180) speedRef = 180;
   if (speedRef > 1200) speedRef = 1200;
+  int speedStep = map(speedRef, 1200, 180, 1, 10);
+  if (speedStep < 1) speedStep = 1;
+  if (speedStep > 10) speedStep = 10;
 
-  int pulseStep = map(speedRef, 180, 1200, 260, 40); // schnell -> große Schritte
-  if (pulseStep < 20) pulseStep = 20;
-  const int frameMs = 20;
+  // Servo auf letzter bekannter Position "aufwecken"
+  ledcWrite(SERVO_PIN, startPulse);
+  delay(25);
 
-  if (target == from) {
-    ledcWrite(SERVO_PIN, target);
-    delay(120);
-    ledcWrite(SERVO_PIN, 0);
-    currentServoPulse = target;
-    return;
-  }
+  if (speedStep == 10) {
+    // Schnellster Modus: Direktsprung
+    ledcWrite(SERVO_PIN, targetPulse);
+    delay(350);
+  } else {
+    // Sichtbarer Sweep-Modus
+    const int STEP_MIN = 30;
+    const int STEP_MAX = 700;
+    const int DELAY_MAX = 90;
+    const int DELAY_MIN = 22; // nie < 20ms
 
-  int dir = (target > from) ? 1 : -1;
-  int pulse = from;
-  int guard = 0;
+    int stepSize = map(speedStep, 1, 9, STEP_MIN, STEP_MAX);
+    int stepDelay = map(speedStep, 1, 9, DELAY_MAX, DELAY_MIN);
+    if (stepSize < 1) stepSize = 1;
+    if (stepDelay < 20) stepDelay = 20;
 
-  while (pulse != target && guard < 500) {
-    int nextPulse = pulse + dir * pulseStep;
-    if ((dir > 0 && nextPulse > target) || (dir < 0 && nextPulse < target)) {
-      nextPulse = target;
+    int cur = startPulse;
+    int dir = (targetPulse > cur) ? 1 : -1;
+    int guard = 0;
+
+    while (cur != targetPulse && guard < 500) {
+      int remaining = abs(targetPulse - cur);
+      int inc = stepSize;
+      if (inc > remaining) inc = remaining;
+      cur += dir * inc;
+      ledcWrite(SERVO_PIN, cur);
+      delay(stepDelay);
+      guard++;
     }
 
-    ledcWrite(SERVO_PIN, nextPulse);
-    pulse = nextPulse;
-    guard++;
-
-    if (pulse != target) delay(frameMs);
+    delay(120);
   }
 
-  delay(120);
   ledcWrite(SERVO_PIN, 0); // Signal aus = kein Brummen
-  currentServoPulse = target;
+  currentServoPulse = targetPulse;
 }
 
 int jpegDraw(JPEGDRAW* pDraw) {
@@ -1071,15 +1080,15 @@ void setup() {
   if (ledColorIndex < -1 || ledColorIndex >= LED_CATALOG_COUNT) ledColorIndex = -1;
   applyLed();
 
-  // Servo initialisieren
-  ledcAttach(SERVO_PIN, SERVO_FREQ, 16);
-  currentServoPulse = servoHochformatPulse;
-  servoMove(servoHochformatPulse); // Startposition = Hochformat
-  delay(200);
-
   tft.init();
   tft.setRotation(0);
   tft.setBrightness(220);
+
+  // Servo initialisieren (nach tft.init(), damit PWM-Kanäle sauber getrennt sind)
+  ledcAttach(SERVO_PIN, SERVO_FREQ, 16);
+  currentServoPulse = (currentRotation == 1) ? servoQuerformatPulse : servoHochformatPulse;
+  servoMove(servoHochformatPulse); // Startposition = Hochformat
+  delay(200);
   connectWiFi();
   fetchWlanConfigFromServer();
 
