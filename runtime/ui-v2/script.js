@@ -388,6 +388,34 @@ $('#wlan-form')?.addEventListener('submit', async (e) => {
   }
 });
 
+$('#wlan-apply-btn')?.addEventListener('click', async () => {
+  try {
+    $('#wlan-msg').textContent = 'Speichere und sende an ESP…';
+
+    await jpost('/api/wlan', {
+      ssid: $('#wlan-ssid').value,
+      password: $('#wlan-password').value,
+      espHost: $('#wlan-esp-host').value,
+      serverBase: $('#wlan-server-base').value,
+    });
+
+    const host = ($('#wlan-esp-host')?.value || '').trim();
+    if (host) {
+      try {
+        const t = await jpost('/api/wlan/test', { espHost: host });
+        $('#wlan-msg').textContent = `✅ Gespeichert. ESP erreichbar (${t.mode || 'ok'}). Übernahme erfolgt automatisch (max. ~60s). Für sofort: ESP kurz neu starten.`;
+        return;
+      } catch (_) {
+        // Fallback below with neutral hint
+      }
+    }
+
+    $('#wlan-msg').textContent = '✅ Gespeichert. Der ESP übernimmt automatisch (max. ~60s). Wenn es sofort gelten soll: ESP kurz neu starten.';
+  } catch (e2) {
+    $('#wlan-msg').textContent = '❌ ' + e2.message;
+  }
+});
+
 $('#wlan-test-btn')?.addEventListener('click', async () => {
   try {
     $('#wlan-msg').textContent = 'Teste ESP…';

@@ -167,9 +167,10 @@
           <label>ESP IP/Host</label><input id="wlan-esp-host" type="text" placeholder="z. B. 192.168.50.77" />
           <label>Server URL</label><input id="wlan-server-base" type="text" placeholder="http://frame-server.local:8765" />
           <button type="submit">Speichern</button>
+          <button type="button" id="wlan-apply-btn">📡 Auf ESP anwenden</button>
           <button type="button" id="wlan-test-btn">ESP testen</button>
         </form>
-        <p class="hint">Hinweis: Werte werden serverseitig gespeichert. Für Firmware-Änderungen später OTA/Flash nutzen.</p>
+        <p class="hint">Hinweis: Der Rahmen zieht WLAN/Server-Einstellungen automatisch vom Server (spätestens nach ~60s oder direkt nach Neustart).</p>
         <div id="wlan-msg" class="msg"></div>
       </section>
       <section class="view" data-view="firmware">
