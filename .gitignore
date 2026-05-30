@@ -17,3 +17,6 @@ Thumbs.db
 .env
 .env.*
 *.local
+
+# Firmware WLAN secrets
+firmware/muffi-frame/secrets.h

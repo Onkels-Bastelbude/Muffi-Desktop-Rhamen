@@ -9,14 +9,16 @@ from PIL import Image, ImageOps
 from urllib.parse import unquote, quote, parse_qs, urlparse
 from html import escape
 import os, io, json, time, threading, re, socket, subprocess, tempfile
+from pathlib import Path
 
 PHOTO_DIR  = "/mnt/muffi"
-FALLBACK_PHOTO_DIR = "/home/maika/.openclaw/workspace/projects/muffi-bilderrahmen/runtime/photos"
+FALLBACK_PHOTO_DIR = str(Path.home() / ".muffi" / "photos")
 PORT       = 8765
 DISPLAY_W  = 172   # Hochformat Breite
 DISPLAY_H  = 320   # Hochformat Höhe
 
-CONFIG_PATH = "/home/maika/.frame-server-config.json"
+CONFIG_PATH = str(Path.home() / ".frame-server-config.json")
+LOCAL_SHARE_CREDENTIALS_PATH = str(Path.home() / ".muffi-credentials")
 DEFAULT_REFRESH_MS = 5 * 60 * 1000
 MIN_REFRESH_MS = 10 * 1000
 MAX_REFRESH_MS = 24 * 60 * 60 * 1000
@@ -880,16 +882,23 @@ def test_esp_host(host, port=80, timeout_seconds=1.5):
 def _read_local_share_credentials_file():
     user = ""
     pw = ""
-    try:
-        with open('/etc/samba/.muffi-credentials', 'r', encoding='utf-8', errors='ignore') as cf:
-            for line in cf:
-                line = line.strip()
-                if line.startswith('username=') and not user:
-                    user = line.split('=', 1)[1].strip()[:128]
-                elif line.startswith('password=') and not pw:
-                    pw = line.split('=', 1)[1].strip()[:128]
-    except Exception:
-        pass
+    for creds_path in (LOCAL_SHARE_CREDENTIALS_PATH, '/etc/samba/.muffi-credentials'):
+        if not creds_path:
+            continue
+        try:
+            with open(creds_path, 'r', encoding='utf-8', errors='ignore') as cf:
+                for line in cf:
+                    line = line.strip()
+                    if line.startswith('username=') and not user:
+                        user = line.split('=', 1)[1].strip()[:128]
+                    elif line.startswith('password=') and not pw:
+                        pw = line.split('=', 1)[1].strip()[:128]
+            if user and pw:
+                break
+        except FileNotFoundError:
+            continue
+        except Exception:
+            continue
     return user, pw
 
 

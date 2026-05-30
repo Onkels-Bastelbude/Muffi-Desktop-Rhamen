@@ -14,11 +14,21 @@
 #include <ArduinoJson.h>
 #include <Preferences.h>
 
+#if __has_include("secrets.h")
+#include "secrets.h"
+#endif
+
 // ============ EINSTELLUNGEN ============
-const char* WIFI_SSID_DEFAULT     = "Papa Wlan";
-const char* WIFI_PASSWORD_DEFAULT = "Andre123456";
+#ifndef WIFI_SSID_DEFAULT
+#define WIFI_SSID_DEFAULT ""
+#endif
+
+#ifndef WIFI_PASSWORD_DEFAULT
+#define WIFI_PASSWORD_DEFAULT ""
+#endif
+
 const char* SERVER_BASE_DEFAULT   = "http://frame-server.local:8765"; // Beispielwert, lokal anpassen
-#define DEFAULT_REFRESH_MS   (10 * 1000UL)
+#define DEFAULT_REFRESH_MS   (5 * 60 * 1000UL)
 #define BUTTON_PIN   9    // BOOT-Knopf
 #define SIDE_BUTTON_PIN 0  // Seitentaste (bei Bedarf anpassen)
 #ifdef RGB_BUILTIN
@@ -111,6 +121,7 @@ unsigned long lastUploadPollMs = 0;
 bool uploadUiVisible = false;
 int lastUploadProgress = -1;
 String lastUploadPhase = "idle";
+bool bootClickHandlingEnabled = false;
 
 // LED + Netzwerk State
 Preferences prefs;
@@ -379,10 +390,8 @@ void cycleLedColor() {
   } else {
     nextIdx = (nextIdx + 1) % LED_CATALOG_COUNT;
   }
-  setLedColor(LED_CATALOG[nextIdx][0], LED_CATALOG[nextIdx][1], LED_CATALOG[nextIdx][2], nextIdx);
   ledOn = true;
-  applyLed();
-  saveLedState();
+  setLedColor(LED_CATALOG[nextIdx][0], LED_CATALOG[nextIdx][1], LED_CATALOG[nextIdx][2], nextIdx);
 }
 
 String ledColorHex() {
@@ -600,15 +609,19 @@ void showImage(int idx) {
     return;
   }
 
+  const size_t MAX_JPEG_SIZE = 400000;
   int size = http.getSize();
-  if (size <= 0 || size > 400000) {
+  if (size > (int)MAX_JPEG_SIZE) {
     http.end();
     showStatus("Groesse Fehler!", TFT_YELLOW);
     return;
   }
 
-  if (jpegBuf) { free(jpegBuf); jpegBuf = nullptr; }
-  jpegBuf = (uint8_t*)malloc(size);
+  if (jpegBuf) { free(jpegBuf); jpegBuf = nullptr; jpegLen = 0; }
+
+  size_t capacity = (size > 0) ? (size_t)size : 16384;
+  if (capacity > MAX_JPEG_SIZE) capacity = MAX_JPEG_SIZE;
+  jpegBuf = (uint8_t*)malloc(capacity);
   if (!jpegBuf) {
     http.end();
     showStatus("RAM voll!", TFT_RED);
@@ -618,14 +631,63 @@ void showImage(int idx) {
   WiFiClient* stream = http.getStreamPtr();
   size_t got = 0;
   unsigned long t = millis();
-  while (got < (size_t)size && millis() - t < 15000) {
-    int r = stream->readBytes(jpegBuf + got, size - got);
-    if (r > 0) got += r;
+  while (millis() - t < 15000 && got < MAX_JPEG_SIZE) {
+    if (size > 0 && got >= (size_t)size) break;
+
+    int avail = stream->available();
+    if (avail <= 0) {
+      if (!stream->connected()) break;
+      delay(2);
+      continue;
+    }
+
+    size_t want = (size_t)avail;
+    if (size > 0) {
+      size_t remaining = (size_t)size - got;
+      if (want > remaining) want = remaining;
+    }
+    if (want > (MAX_JPEG_SIZE - got)) want = MAX_JPEG_SIZE - got;
+    if (want == 0) break;
+
+    if (got + want > capacity) {
+      size_t newCapacity = capacity;
+      while (newCapacity < got + want && newCapacity < MAX_JPEG_SIZE) {
+        size_t doubled = newCapacity * 2;
+        newCapacity = (doubled > MAX_JPEG_SIZE) ? MAX_JPEG_SIZE : doubled;
+      }
+      if (newCapacity < got + want) break;
+
+      uint8_t* bigger = (uint8_t*)realloc(jpegBuf, newCapacity);
+      if (!bigger) {
+        http.end();
+        free(jpegBuf);
+        jpegBuf = nullptr;
+        jpegLen = 0;
+        showStatus("RAM voll!", TFT_RED);
+        return;
+      }
+      jpegBuf = bigger;
+      capacity = newCapacity;
+    }
+
+    int r = stream->readBytes(jpegBuf + got, want);
+    if (r > 0) {
+      got += (size_t)r;
+      t = millis();
+    } else {
+      delay(1);
+    }
   }
   http.end();
 
+  jpegLen = got;
+  if (got == 0 || got > MAX_JPEG_SIZE || (size > 0 && got < (size_t)size)) {
+    showStatus("Download Fehler!", TFT_RED);
+    return;
+  }
+
   tft.fillScreen(TFT_BLACK);
-  if (jpeg.openRAM(jpegBuf, got, jpegDraw)) {
+  if (jpeg.openRAM(jpegBuf, jpegLen, jpegDraw)) {
     jpeg.setPixelType(RGB565_BIG_ENDIAN);
     int offX = max(0, (int)(tft.width()  - jpeg.getWidth())  / 2);
     int offY = max(0, (int)(tft.height() - jpeg.getHeight()) / 2);
@@ -871,8 +933,11 @@ void loop() {
     }
   }
 
-  // Hauptbutton zuverlässig per ISR auswerten
-  if (millis() > 600) {
+  // Hauptbutton zuverlässig per ISR auswerten (erst nach Boot-Phase)
+  if (!bootClickHandlingEnabled && millis() >= 600) {
+    bootClickHandlingEnabled = true;
+  }
+  if (bootClickHandlingEnabled) {
     handleBootClicks();
   }
 
