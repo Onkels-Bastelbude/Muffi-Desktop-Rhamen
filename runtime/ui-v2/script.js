@@ -383,20 +383,28 @@ function updateMotorSpeedLabel(step) {
   $('#motor-speed-step-val').textContent = `${s}`;
 }
 
+let motorEnabledState = true;
+
+function setMotorEnabledButtons(enabled) {
+  motorEnabledState = !!enabled;
+  $('#motor-on-btn')?.classList.toggle('active', motorEnabledState);
+  $('#motor-off-btn')?.classList.toggle('active', !motorEnabledState);
+}
+
 function getMotorFormPayload() {
   const step = Number($('#motor-speed-step')?.value || 5);
   return {
-    enabled: !!$('#motor-enabled')?.checked,
+    enabled: motorEnabledState,
     portraitPulse: Number($('#motor-portrait')?.value || 1638),
     landscapePulse: Number($('#motor-landscape')?.value || 4915),
     moveDelayMs: motorStepToDelayMs(step),
   };
 }
 
-async function motorSave(patch){
+async function motorSave(patch, successText){
   try {
     const d = await jpost('/api/motor', { ...(patch || {}), source:'web' });
-    $('#motor-enabled').checked = !!d.enabled;
+    setMotorEnabledButtons(!!d.enabled);
     $('#motor-portrait').value = Number(d.portraitPulse || 1638);
     $('#motor-landscape').value = Number(d.landscapePulse || 4915);
     const speedStep = motorDelayMsToStep(Number(d.moveDelayMs || 600));
@@ -404,7 +412,7 @@ async function motorSave(patch){
     updateMotorSpeedLabel(speedStep);
     $('#motor-portrait-val').textContent = String(Number(d.portraitPulse || 1638));
     $('#motor-landscape-val').textContent = String(Number(d.landscapePulse || 4915));
-    $('#motor-msg').textContent = '✅ Motor gespeichert';
+    $('#motor-msg').textContent = successText || '✅ Motor gespeichert';
   } catch (e) {
     $('#motor-msg').textContent = '❌ ' + (e?.message || e);
   }
@@ -413,7 +421,7 @@ async function motorSave(patch){
 async function motorRefresh(){
   try {
     const d = await jget('/api/motor');
-    $('#motor-enabled').checked = !!d.enabled;
+    setMotorEnabledButtons(!!d.enabled);
     $('#motor-portrait').value = Number(d.portraitPulse || 1638);
     $('#motor-landscape').value = Number(d.landscapePulse || 4915);
     const speedStep = motorDelayMsToStep(Number(d.moveDelayMs || 600));
@@ -424,14 +432,15 @@ async function motorRefresh(){
   } catch (_) {}
 }
 
-$('#motor-enabled')?.addEventListener('change', () => motorSave({ enabled: !!$('#motor-enabled').checked }));
+$('#motor-on-btn')?.addEventListener('click', () => motorSave({ enabled: true }, '✅ Motor gespeichert (AN)'));
+$('#motor-off-btn')?.addEventListener('click', () => motorSave({ enabled: false }, '✅ Motor gespeichert (AUS)'));
 $('#motor-portrait')?.addEventListener('input', () => { $('#motor-portrait-val').textContent = String(Number($('#motor-portrait').value || 1638)); });
 $('#motor-landscape')?.addEventListener('input', () => { $('#motor-landscape-val').textContent = String(Number($('#motor-landscape').value || 4915)); });
 $('#motor-speed-step')?.addEventListener('input', () => updateMotorSpeedLabel($('#motor-speed-step')?.value || 5));
-$('#motor-speed-step')?.addEventListener('change', () => motorSave({ moveDelayMs: motorStepToDelayMs($('#motor-speed-step')?.value || 5) }));
-$('#motor-save-btn')?.addEventListener('click', () => motorSave(getMotorFormPayload()));
-$('#motor-test-portrait-btn')?.addEventListener('click', () => motorSave({ ...getMotorFormPayload(), testOrientation: 'portrait' }));
-$('#motor-test-landscape-btn')?.addEventListener('click', () => motorSave({ ...getMotorFormPayload(), testOrientation: 'landscape' }));
+$('#motor-speed-step')?.addEventListener('change', () => motorSave({ moveDelayMs: motorStepToDelayMs($('#motor-speed-step')?.value || 5), enabled: motorEnabledState }, '✅ Motor gespeichert'));
+$('#motor-save-btn')?.addEventListener('click', () => motorSave(getMotorFormPayload(), '✅ Motor gespeichert'));
+$('#motor-test-portrait-btn')?.addEventListener('click', () => motorSave({ ...getMotorFormPayload(), testOrientation: 'portrait' }, '✅ Motor gespeichert'));
+$('#motor-test-landscape-btn')?.addEventListener('click', () => motorSave({ ...getMotorFormPayload(), testOrientation: 'landscape' }, '✅ Motor gespeichert'));
 
 async function wlanRefresh(){
   try {

@@ -170,30 +170,47 @@
             <span class="motor-pin-chip">Gemeinsame Masse: ESP GND + Servo GND + 5V GND</span>
           </div>
         </div>
-        <div class="row"><label><input type="checkbox" id="motor-enabled" /> Motor aktiv</label></div>
-        <div class="row">
-          <label>Hochformat Puls</label>
-          <input id="motor-portrait" type="range" min="500" max="8000" step="1" />
-          <span id="motor-portrait-val">1638</span>
+        <div class="motor-frame-block">
+          <div class="motor-block-title">Motor aktiv</div>
+          <div class="motor-toggle-wrap">
+            <button type="button" id="motor-on-btn" class="motor-toggle-btn">🟢 AN</button>
+            <button type="button" id="motor-off-btn" class="motor-toggle-btn">🔴 AUS</button>
+          </div>
         </div>
-        <div class="row">
-          <label>Querformat Puls</label>
-          <input id="motor-landscape" type="range" min="500" max="8000" step="1" />
-          <span id="motor-landscape-val">4915</span>
+
+        <div class="motor-frame-block">
+          <div class="motor-block-title">Motor Speed (Step)</div>
+          <div class="row">
+            <input id="motor-speed-step" type="range" min="1" max="10" step="1" value="5" />
+            <span id="motor-speed-step-val">5</span>
+          </div>
+          <div class="hint">Step 1 = langsam · Step 10 = schnell</div>
+          <div class="hint">Auto-Übernahme aktiv ⚡</div>
         </div>
-        <div class="row">
-          <label>Motor Speed (Step)</label>
-          <input id="motor-speed-step" type="range" min="1" max="10" step="1" value="5" />
-          <span id="motor-speed-step-val">5</span>
+
+        <div class="motor-frame-block">
+          <div class="motor-block-title">Winkel Optionen</div>
+          <div class="row">
+            <label>Hochformat Puls</label>
+            <input id="motor-portrait" type="range" min="500" max="8000" step="1" />
+            <span id="motor-portrait-val">1638</span>
+          </div>
+          <div class="row">
+            <label>Querformat Puls</label>
+            <input id="motor-landscape" type="range" min="500" max="8000" step="1" />
+            <span id="motor-landscape-val">4915</span>
+          </div>
+          <div class="row">
+            <button type="button" id="motor-save-btn">💾 Winkel speichern</button>
+            <button type="button" id="motor-test-portrait-btn">🧪 Test Hochformat</button>
+            <button type="button" id="motor-test-landscape-btn">🧪 Test Querformat</button>
+          </div>
         </div>
-        <div class="hint">Step 1 = langsam · Step 10 = schnell</div>
-        <div class="row">
-          <button type="button" id="motor-save-btn">💾 Motor speichern</button>
-          <button type="button" id="motor-test-portrait-btn">🧪 Test Hochformat</button>
-          <button type="button" id="motor-test-landscape-btn">🧪 Test Querformat</button>
+
+        <div class="motor-frame-block motor-status-block">
+          <div class="motor-block-title">Status</div>
+          <div id="motor-msg" class="msg">✅ Motor gespeichert</div>
         </div>
-        <div class="hint">Tipp: Werte speichern und mit Test prüfen. Änderungen werden vom ESP automatisch gezogen.</div>
-        <div id="motor-msg" class="msg"></div>
       </section>
       <section class="view" data-view="firmware">
         <h2>Firmware</h2>
