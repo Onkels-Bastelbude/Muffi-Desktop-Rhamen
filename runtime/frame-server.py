@@ -30,6 +30,7 @@ UI_V2_FILES = {
     "styles.css": "text/css; charset=utf-8",
     "script.js": "application/javascript; charset=utf-8",
     "bg-loop.gif": "image/gif",
+    "motor-wiring.jpg": "image/jpeg",
 }
 
 LED_COLORS = [
