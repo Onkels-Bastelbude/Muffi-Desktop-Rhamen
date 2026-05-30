@@ -58,9 +58,15 @@ fi
 
 BIN_PATH="$BUILD_DIR/muffi-frame.ino.bin"
 if [[ ! -f "$BIN_PATH" ]]; then
-  echo "[error] Firmware-Binärdatei fehlt: $BIN_PATH"
-  echo "[hint] Entweder arduino-cli installieren oder einmal lokal kompilieren, damit die .bin existiert"
-  exit 3
+  RELEASE_BIN="$INSTALL_DIR/firmware/releases/muffi-frame-latest.bin"
+  if [[ -f "$RELEASE_BIN" ]]; then
+    echo "[warn] Nutze vorgebaute Release-Binärdatei: $RELEASE_BIN"
+    BIN_PATH="$RELEASE_BIN"
+  else
+    echo "[error] Firmware-Binärdatei fehlt: $BIN_PATH"
+    echo "[hint] Entweder arduino-cli installieren oder firmware/releases/muffi-frame-latest.bin bereitstellen"
+    exit 3
+  fi
 fi
 
 ESPOTA_PY="${ESPOTA_PY:-}"
