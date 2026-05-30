@@ -1,6 +1,6 @@
 # Dokumentation – Muffi Frame Server + ESP
 
-## Aktueller Stand (2026-05-30)
+## Aktueller Stand (2026-05-31)
 
 System läuft produktiv im Heimnetz. Kernfunktionen sind verifiziert:
 - Vorschau/Anzeige
@@ -10,10 +10,10 @@ System läuft produktiv im Heimnetz. Kernfunktionen sind verifiziert:
 - ESP Erst-Flash (USB)
 - ESP OTA/On-the-fly Update
 - ESP Sync-Status („Config empfangen")
+- Motor-Steuerung (UI + API + Firmware-Sync, inkl. Testfunktionen)
 
 ## Aktuelle Baustellen
 - **Medien** (Flow/Handling final glätten)
-- **Motor** (UI + Funktionsanbindung finalisieren)
 
 ## Installer / Betrieb
 - Linux-Installer: `install/linux/install-muffi-frame.sh`
@@ -71,6 +71,7 @@ Damit funktionieren USB-Erstflash und OTA ohne manuelle Toolchain-Nacharbeit.
 - `GET/POST /api/wlan`, `POST /api/wlan/test`
 - `GET/POST /api/storage`
 - `POST /api/storage/share-check`, `POST /api/storage/share-switch`, `POST /api/storage/remount`
+- `GET/POST /api/motor`
 - `POST /api/esp/prepare`, `GET /api/esp/sync-status`
 - `POST /api/esp/update/start`, `GET /api/esp/update/status`
 - `GET /api/esp/usb/status`, `POST /api/esp/usb/check-boot`
