@@ -128,6 +128,7 @@ Preferences prefs;
 String wifiSsid = "";
 String wifiPassword = "";
 String serverBase = SERVER_BASE_DEFAULT;
+String lastWlanSyncToken = "";
 unsigned long lastWlanSyncMs = 0;
 bool ledOn = true;
 uint8_t ledBrightness = 180;
@@ -210,6 +211,7 @@ bool fetchWlanConfigFromServer() {
   String nextSsid = String((const char*)(doc["ssid"] | ""));
   String nextPw = String((const char*)(doc["password"] | ""));
   String nextBase = normalizeServerBase(String((const char*)(doc["serverBase"] | SERVER_BASE_DEFAULT)));
+  String syncToken = String((const char*)(doc["syncToken"] | ""));
 
   bool changed = false;
   if (nextBase.length() && nextBase != serverBase) {
@@ -228,6 +230,14 @@ bool fetchWlanConfigFromServer() {
   if (changed) {
     saveNetworkConfigToPrefs();
     Serial.println("WLAN/Server Config vom Server aktualisiert");
+  }
+
+  if (syncToken.length() && syncToken != lastWlanSyncToken) {
+    lastWlanSyncToken = syncToken;
+    prefs.putString("wlanTok", lastWlanSyncToken);
+    Serial.println("WLAN Sync Token bestaetigt: " + lastWlanSyncToken);
+    showStatus("Config empfangen", TFT_GREEN);
+    delay(180);
   }
   return true;
 }
@@ -841,6 +851,7 @@ void setup() {
 
   prefs.begin("muffi", false);
   loadNetworkConfigFromPrefs();
+  lastWlanSyncToken = prefs.getString("wlanTok", "");
   ledOn = prefs.getBool("ledOn", true);
   ledBrightness = prefs.getUChar("ledBri", 180);
   ledR = prefs.getUChar("ledR", 255);

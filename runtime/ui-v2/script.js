@@ -577,6 +577,42 @@ $('#fw-usb-btn')?.addEventListener('click', () => {
   $('#fw-esp-msg').textContent = 'ℹ️ USB-Flash: ESP per Datenkabel verbinden, BOOT halten + RESET tippen, dann Upload starten.';
 });
 
+async function refreshEspSyncStatus() {
+  try {
+    const s = await jget('/api/esp/sync-status');
+    const host = s.espHost || '-';
+    const ip = s.lastAckIp || '-';
+    const age = (s.secondsSinceAck == null) ? 'nie' : `${s.secondsSinceAck}s`;
+    const state = s.isSynced ? '✅ ESP hat Web-UI-Daten empfangen' : '⏳ Warte auf ESP-Sync';
+    $('#fw-esp-sync-status').textContent = `${state} · ESP: ${host} · Letzter Pull: ${age} · Quelle: ${ip}`;
+  } catch (e) {
+    $('#fw-esp-sync-status').textContent = '⚠️ ESP Sync-Status nicht verfügbar: ' + (e?.message || e);
+  }
+}
+
+$('#fw-esp-prepare-btn')?.addEventListener('click', async () => {
+  try {
+    const host = ($('#wlan-esp-host')?.value || '').trim();
+    if (!host) {
+      $('#fw-esp-msg').textContent = '⚠️ Bitte zuerst ESP IP/Host im WLAN-Tab setzen.';
+      return;
+    }
+
+    $('#fw-esp-msg').textContent = 'Speichere Konfig und markiere ESP-Vorbereitung…';
+    const payload = {
+      ssid: $('#wlan-ssid')?.value || '',
+      password: $('#wlan-password')?.value || '',
+      espHost: host,
+      serverBase: $('#wlan-server-base')?.value || '',
+    };
+    const d = await jpost('/api/esp/prepare', payload);
+    $('#fw-esp-msg').textContent = `✅ Vorbereitung gesetzt (Token ${d.syncToken || '-'}) · ESP zieht Daten beim nächsten WLAN-Sync.`;
+    await refreshEspSyncStatus();
+  } catch (e) {
+    $('#fw-esp-msg').textContent = '❌ ESP vorbereiten fehlgeschlagen: ' + (e?.message || e);
+  }
+});
+
 $('#fw-restart-btn')?.addEventListener('click', async () => {
   try {
     $('#fw-server-msg').textContent = '🔁 Server-Restart wird ausgelöst…';
@@ -783,6 +819,7 @@ $('#upload-form')?.addEventListener('submit', (e) => {
   await ledRefresh();
   await wlanRefresh();
   await refreshMediaAndFrame();
+  await refreshEspSyncStatus();
 
   try {
     const st = await jget('/api/update/status');
@@ -809,6 +846,7 @@ $('#upload-form')?.addEventListener('submit', (e) => {
   setInterval(refreshMediaAndFrame, 3500);
   setInterval(ledRefresh, 2500);
   setInterval(refreshServer, 10000);
+  setInterval(refreshEspSyncStatus, 5000);
 })();
 
 // ===== SMB Network Browser =====

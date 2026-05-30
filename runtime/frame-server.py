@@ -646,6 +646,17 @@ def sanitize_wlan_config(raw):
     }
 
 
+def sanitize_esp_sync(raw):
+    raw = raw or {}
+    return {
+        "desiredToken": str(raw.get("desiredToken", "") or "")[:64],
+        "lastPrepareAt": float(raw.get("lastPrepareAt") or 0.0),
+        "lastAckToken": str(raw.get("lastAckToken", "") or "")[:64],
+        "lastAckAt": float(raw.get("lastAckAt") or 0.0),
+        "lastAckIp": str(raw.get("lastAckIp", "") or "")[:64],
+    }
+
+
 def sanitize_storage_auth(raw):
     raw = raw or {}
     username = str(raw.get("username", "") or "").strip()[:128]
@@ -662,6 +673,7 @@ def load_config():
         "refreshMs": DEFAULT_REFRESH_MS,
         "led": sanitize_led_config({}),
         "wlan": sanitize_wlan_config({}),
+        "espSync": sanitize_esp_sync({}),
         "storage": sanitize_storage_config({}),
         "storageAuth": sanitize_storage_auth({}),
     }
@@ -671,6 +683,7 @@ def load_config():
             cfg["refreshMs"] = clamp_refresh_ms(disk.get("refreshMs", DEFAULT_REFRESH_MS))
             cfg["led"] = sanitize_led_config(disk.get("led", {}))
             cfg["wlan"] = sanitize_wlan_config(disk.get("wlan", {}))
+            cfg["espSync"] = sanitize_esp_sync(disk.get("espSync", {}))
             cfg["storage"] = sanitize_storage_config(disk.get("storage", {}))
             cfg["storageAuth"] = sanitize_storage_auth(disk.get("storageAuth", {}))
     except:
@@ -684,6 +697,7 @@ def save_config(cfg):
         "refreshMs": clamp_refresh_ms(cfg.get("refreshMs", DEFAULT_REFRESH_MS)),
         "led": sanitize_led_config(cfg.get("led", {})),
         "wlan": sanitize_wlan_config(cfg.get("wlan", {})),
+        "espSync": sanitize_esp_sync(cfg.get("espSync", {})),
         "storage": sanitize_storage_config(cfg.get("storage", {})),
         "storageAuth": sanitize_storage_auth(cfg.get("storageAuth", {})),
     }
@@ -792,6 +806,57 @@ def update_wlan_config(patch: dict):
     SERVER_CONFIG["wlan"] = current
     save_config(SERVER_CONFIG)
     return dict(current)
+
+
+def get_esp_sync_snapshot():
+    return sanitize_esp_sync((SERVER_CONFIG or {}).get("espSync", {}))
+
+
+def mark_esp_prepare_requested():
+    sync = sanitize_esp_sync((SERVER_CONFIG or {}).get("espSync", {}))
+    token = str(int(time.time() * 1000))
+    sync["desiredToken"] = token
+    sync["lastPrepareAt"] = time.time()
+    SERVER_CONFIG["espSync"] = sync
+    save_config(SERVER_CONFIG)
+    return dict(sync)
+
+
+def mark_esp_wlan_pull(client_ip=""):
+    sync = sanitize_esp_sync((SERVER_CONFIG or {}).get("espSync", {}))
+    sync["lastAckAt"] = time.time()
+    if client_ip:
+        sync["lastAckIp"] = str(client_ip)[:64]
+    desired = str(sync.get("desiredToken") or "")
+    if desired:
+        sync["lastAckToken"] = desired
+    SERVER_CONFIG["espSync"] = sync
+    save_config(SERVER_CONFIG)
+    return dict(sync)
+
+
+def get_esp_sync_status():
+    wlan = sanitize_wlan_config((SERVER_CONFIG or {}).get("wlan", {}))
+    sync = sanitize_esp_sync((SERVER_CONFIG or {}).get("espSync", {}))
+    desired = str(sync.get("desiredToken") or "")
+    ack = str(sync.get("lastAckToken") or "")
+    prepare_at = float(sync.get("lastPrepareAt") or 0.0)
+    ack_at = float(sync.get("lastAckAt") or 0.0)
+    now = time.time()
+
+    is_synced = bool(desired) and desired == ack and ack_at >= prepare_at
+    seconds_since_ack = int(max(0.0, now - ack_at)) if ack_at > 0 else None
+
+    return {
+        "desiredToken": desired,
+        "lastAckToken": ack,
+        "lastPrepareAt": prepare_at,
+        "lastAckAt": ack_at,
+        "lastAckIp": sync.get("lastAckIp", ""),
+        "isSynced": is_synced,
+        "secondsSinceAck": seconds_since_ack,
+        "espHost": wlan.get("espHost", ""),
+    }
 
 
 def get_storage_auth_snapshot(mask_password=True):
@@ -2054,6 +2119,10 @@ class FrameHandler(BaseHTTPRequestHandler):
             self.send_json(get_esp_update_status(offset=offset))
             return
 
+        if path == "api/esp/sync-status":
+            self.send_json(get_esp_sync_status())
+            return
+
         if path == "api/storage/auth":
             self.send_json(get_storage_auth_snapshot(mask_password=True))
             return
@@ -2071,7 +2140,22 @@ class FrameHandler(BaseHTTPRequestHandler):
             return
 
         if path == "api/wlan":
-            self.send_json(get_wlan_config_snapshot(mask_password=False))
+            client_ip = ""
+            try:
+                client_ip = str((self.client_address or [""])[0] or "")
+            except Exception:
+                client_ip = ""
+
+            wlan = get_wlan_config_snapshot(mask_password=False)
+            ua = str(self.headers.get("User-Agent", "") or "")
+            esp_host = str(wlan.get("espHost", "") or "")
+            from_esp = ("ESP" in ua.upper()) or (esp_host and client_ip and client_ip == esp_host)
+
+            sync = get_esp_sync_snapshot()
+            if from_esp:
+                sync = mark_esp_wlan_pull(client_ip)
+            wlan["syncToken"] = str(sync.get("desiredToken") or "")
+            self.send_json(wlan)
             return
 
         # ─── SMB Network Browser API ────────────────────────────────────────────
@@ -2291,6 +2375,32 @@ class FrameHandler(BaseHTTPRequestHandler):
                 self.send_json({"ok": False, "error": result.get("error", "Update konnte nicht gestartet werden")}, status=409)
                 return
             self.send_json({"ok": True, "message": result.get("message", "Update gestartet")})
+            return
+
+        if path == "api/esp/prepare":
+            length = int(self.headers.get("Content-Length", "0") or "0")
+            body = self.rfile.read(length) if length > 0 else b""
+            payload = {}
+            try:
+                payload = json.loads(body.decode("utf-8") or "{}")
+            except Exception:
+                payload = {}
+
+            if payload:
+                try:
+                    update_wlan_config(payload)
+                except Exception as e:
+                    self.send_json({"ok": False, "error": f"WLAN speichern fehlgeschlagen: {e}"}, status=500)
+                    return
+
+            sync = mark_esp_prepare_requested()
+            status_payload = get_esp_sync_status()
+            self.send_json({
+                "ok": True,
+                "message": "ESP Vorbereitung gespeichert. Warte auf WLAN-Sync vom ESP.",
+                "syncToken": sync.get("desiredToken", ""),
+                **status_payload,
+            })
             return
 
         if path == "api/esp/update/start":
