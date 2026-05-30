@@ -159,20 +159,6 @@
       </section>
 
       <section class="view" data-view="motor"><h2>Motor</h2><p class="hint">Nächster Schritt: Winkel/Speed mit API verbinden.</p></section>
-      <section class="view" data-view="wlan">
-        <h2>WLAN</h2>
-        <form id="wlan-form" class="row">
-          <label>SSID</label><input id="wlan-ssid" type="text" placeholder="WLAN Name" />
-          <label>Passwort</label><input id="wlan-password" type="password" placeholder="WLAN Passwort" />
-          <label>ESP IP/Host</label><input id="wlan-esp-host" type="text" placeholder="z. B. 192.168.50.77" />
-          <label>Server URL</label><input id="wlan-server-base" type="text" placeholder="http://frame-server.local:8765" />
-          <button type="submit">Speichern</button>
-          <button type="button" id="wlan-apply-btn">📡 Auf ESP anwenden</button>
-          <button type="button" id="wlan-test-btn">ESP testen</button>
-        </form>
-        <p class="hint">Hinweis: Der Rahmen zieht WLAN/Server-Einstellungen automatisch vom Server (spätestens nach ~60s oder direkt nach Neustart).</p>
-        <div id="wlan-msg" class="msg"></div>
-      </section>
       <section class="view" data-view="firmware">
         <h2>Firmware</h2>
         <div class="step-frame">
@@ -211,6 +197,19 @@
 
         <h3 style="margin-top:14px;">ESP – On-the-fly Update (WLAN/OTA)</h3>
         <div class="step-frame">
+          <div class="step-frame-title">WLAN / Server Konfiguration</div>
+          <form id="wlan-form" class="row">
+            <label>SSID</label><input id="wlan-ssid" type="text" placeholder="WLAN Name" />
+            <label>Passwort</label><input id="wlan-password" type="password" placeholder="WLAN Passwort" />
+            <label>ESP IP/Host</label><input id="wlan-esp-host" type="text" placeholder="z. B. 192.168.50.77" />
+            <label>Server URL</label><input id="wlan-server-base" type="text" placeholder="http://frame-server.local:8765" />
+            <button type="submit" class="step-btn">💾 Speichern</button>
+            <button type="button" id="wlan-apply-btn" class="step-btn">📡 Auf ESP anwenden</button>
+            <button type="button" id="wlan-test-btn" class="step-btn">🛰️ ESP testen</button>
+          </form>
+          <p class="hint">Hinweis: Der Rahmen zieht WLAN/Server-Einstellungen automatisch vom Server (spätestens nach ~60s oder direkt nach Neustart).</p>
+        </div>
+        <div class="step-frame">
           <div class="step-frame-title">Schritte</div>
           <div class="row">
             <button type="button" id="fw-ota-btn" class="step-btn">Step 1) 📡 ESP erreichbar prüfen</button>
@@ -219,6 +218,7 @@
           </div>
         </div>
         <div class="esp-status-stack">
+          <div id="wlan-msg" class="status-card status-card-info"></div>
           <div id="fw-esp-msg" class="status-card status-card-info"></div>
           <div id="fw-esp-sync-status" class="status-card status-card-sync"></div>
         </div>
@@ -237,7 +237,6 @@
         <button class="nav-btn" data-view="led">LED</button>
         <button class="nav-btn" data-view="konfig">Konfig</button>
         <button class="nav-btn" data-view="motor">Motor</button>
-        <button class="nav-btn" data-view="wlan">WLAN</button>
         <button class="nav-btn" data-view="firmware">Firmware</button>
       </div>
     </aside>
