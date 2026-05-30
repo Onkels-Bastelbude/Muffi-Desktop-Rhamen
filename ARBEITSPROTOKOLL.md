@@ -1,5 +1,19 @@
 # Arbeitsprotokoll – Muffi Bilderrahmen
 
+## 2026-05-30
+
+- Firmware-/ESP-Bereich in UI stark erweitert und vereinfacht:
+  - Server-Steuerung getrennt von ESP-Steuerung
+  - ESP Erst-Flash (USB): Port erkennen, Boot-Check, Flash-Start + Konsole
+  - ESP On-the-fly (WLAN/OTA): Erreichbarkeit, OTA, Config-Sync + Konsole
+- One-Click/Update-Skripte gehärtet:
+  - `arduino-cli` + ESP32-Core Auto-Setup
+  - benötigte Arduino-Libraries Auto-Install (`LovyanGFX`, `JPEGDEC`, `ArduinoJson`)
+  - OTA/Flash-Fallbacks für fehlende lokale Tools
+- Sync-Problem gelöst (ESP hat Web-UI-Daten empfangen bestätigt).
+- UI-Styling im Firmware-Bereich auf konsistenten 70s-Retro-Look gebracht (inkl. Step-Frames + Status-Karten).
+- Aktueller Fokus reduziert auf zwei Baustellen: **Medien** und **Motor**.
+
 ## 2026-05-17
 
 - Neue UI (`/ui-v2`) mit Bestands-Backend verbunden.

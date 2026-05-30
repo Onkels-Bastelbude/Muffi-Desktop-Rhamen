@@ -1,31 +1,59 @@
 # Muffirahmen – Projektstatus
 
-Stand: 2026-05-17
+Stand: 2026-05-30
 
-## Heute erledigt (letzter bestätigter Stand)
-- Neue UI v2 als Startseite live
-- Medien-Bereich mit 2 klaren Quellen (Lokal/Netzwerkordner)
-- UNC-Unterstützung für Windows-Nutzer inkl. Hilfe-`?`
-- Share-Check und Share-Wechsel-Flow ergänzt (Admin-Passwort erforderlich)
-- Netzwerkordnerwechsel-Button + Passwort-Modal verbessert
-- WLAN-Modul + LED-Modul stabil im neuen UI verifiziert
+## Leitregel (ab sofort)
+- Bei Planung, UI-Flow, Texten und Entscheidungen **immer vom Szenario „Neuinstallation / Erstinstallation“** ausgehen.
+- Jeder zentrale Flow muss für einen neuen Nutzer ohne Vorwissen funktionieren (Server setzen → ESP koppeln → Verifizieren).
+- Fallbacks und Statusanzeigen so bauen, dass sie auch ohne Bestandswissen sofort verständlich sind.
 
-## Nächster Schritt (V1 einfach)
-1. Motor-Basisfunktionen sauber im UI (Winkel, Geschwindigkeit, Speichern, Senden)
-2. Share-Wechsel robust gegen alle Mount-Sonderfälle härten (System-Mount-Handling)
-3. V1-Setup-Checkliste für Nutzer fertigstellen
+## Erledigt (aktueller Stand)
+- Web UI v2 läuft stabil
+- Vorschau läuft
+- LED-Steuerung läuft
+- WLAN-Settings + ServerBase-Flow läuft
+- Server-Update-Flow läuft
+- ESP Erst-Flash (USB) läuft
+- ESP On-the-fly OTA läuft
+- ESP Sync-Status im UI bestätigt (Config wird empfangen)
+
+## Aktuelle Baustellen
+1. **Medien** (Flow/Handling final glätten)
+2. **Motor** (UI + Funktionsanbindung finalisieren)
+
+## Nächster konkreter Schritt
+- Medien-Flow abschließen (inkl. robuster Quellenwechsel), danach Motor-Bereich fertigziehen.
+
+## Büro-Fazit (2026-05-18) – Hybrid Quelle + Setup-Flow
+- **Bewertung:** 🟡 Gelb-Grün (sinnvoll und machbar, wenn sauber begrenzt)
+- **Beschlussvorschlag:** Netzwerkordner bleibt Primärquelle, lokaler Ordner ist robuster Fallback.
+- **Web-UI Soll/Ist-Prinzip:**
+  - Soll (Pi): konfigurierte `serverBase` + gewünschte Quelle
+  - Ist (ESP): zuletzt gemeldete aktive `serverBase` + aktuelles Bild/Quelle
+- **V1-Mindestumfang:**
+  1. Setup-Wizard „Server + ESP verbinden“ (Speichern, Test, Anwenden, Verifizieren)
+  2. Statuskarte mit Drift-Hinweis ("ESP nutzt noch alten Server")
+  3. Fallback-Regel klar anzeigen (Netzwerk down → lokal)
+- **Nicht für V1:** persistenter Bild-Cache auf ESP (mehr Komplexität/Fehlerbilder)
+
+## Büro-Fazit (2026-05-18) – Firmware modularisieren ohne Verwirrung
+- **Bewertung:** 🟢 Grün (klare Wartbarkeitsgewinne bei geringem Risiko, wenn in groben Blöcken getrennt)
+- **Leitlinie:** Nicht nach UI-Tabs schneiden, sondern nach stabilen Firmware-Verantwortungen.
+- **Beschlussvorschlag:** `muffi-frame.ino` in 8-9 Module trennen; `main.ino` bleibt Orchestrierung.
+- **Ablage Skelett:** `projects/muffi-bilderrahmen/firmware/muffi-frame/FIRMWARE_MODULARISIERUNG_SKELLET.md`
+- **Reihenfolge:** zuerst kleine, stabile Blöcke (`motor_servo`, `input_buttons`, `led_control`), große Blöcke (`media_display`, `api_client`) zuletzt.
+- **Status aktuell:** Auf Wunsch geparkt bis nach V1-Stabilisierung (kein Refactor jetzt).
 
 ## Offene Fragen
-- Exakte V1-Grenze final abnicken (was bleibt draußen)
-- Reihenfolge: zuerst UI aufräumen oder zuerst Motor-Konfig
+- Keine kritischen offenen Fragen; Fokus liegt auf den 2 Baustellen (Medien, Motor).
 
 ## Blocker
 - Keine harten technischen Blocker bekannt
 
 ## Betriebsdaten (aktuell bekannt)
-- Server-Basis: `http://frame-server.local:8765` (Beispiel)
-- ESP (zuletzt): `<lokale-esp-ip>`
-- SMB-Mount: `<lokaler-mountpfad>`
+- Server-Basis: `http://192.168.50.68:8765`
+- ESP (zuletzt): `192.168.50.79`
+- SMB-Mount: `/mnt/muffi`
 - Live-Server-Code: `projects/muffi-bilderrahmen/runtime/frame-server.py`
 - Live-Firmware-Code: `projects/muffi-bilderrahmen/firmware/muffi-frame/muffi-frame.ino`
 
