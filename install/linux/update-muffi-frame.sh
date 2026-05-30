@@ -9,15 +9,51 @@ SERVICE_NAME="${SERVICE_NAME:-muffi-frame}"
 VENV_DIR="$INSTALL_DIR/.venv"
 REQUIREMENTS="$INSTALL_DIR/runtime/requirements.txt"
 SKIP_SERVICE_RESTART="${SKIP_SERVICE_RESTART:-0}"
+ESP32_INDEX_URL="${ESP32_INDEX_URL:-https://espressif.github.io/arduino-esp32/package_esp32_index.json}"
 
 RED='\033[0;31m'; GRN='\033[0;32m'; BLU='\033[1;34m'; NC='\033[0m'
 log() { printf "${BLU}[+]${NC} %s\n" "$*"; }
 ok()  { printf "${GRN}[✓]${NC} %s\n" "$*"; }
 die() { printf "${RED}[✗] %s${NC}\n" "$*" >&2; exit 1; }
 
+ensure_arduino_cli() {
+  if command -v arduino-cli >/dev/null 2>&1; then
+    ok "arduino-cli vorhanden ($(arduino-cli version | head -n1))"
+    return
+  fi
+
+  if command -v curl >/dev/null 2>&1; then
+    log "arduino-cli fehlt → installiere lokal unter ~/.local/bin …"
+    mkdir -p "$HOME/.local/bin"
+    curl -fsSL https://raw.githubusercontent.com/arduino/arduino-cli/master/install.sh | BINDIR="$HOME/.local/bin" sh
+    export PATH="$HOME/.local/bin:$PATH"
+  fi
+
+  command -v arduino-cli >/dev/null 2>&1 || die "arduino-cli fehlt. Bitte installieren (oder Installer erneut ausführen)."
+  ok "arduino-cli bereit ($(arduino-cli version | head -n1))"
+}
+
+ensure_esp32_core() {
+  if ! command -v arduino-cli >/dev/null 2>&1; then
+    die "arduino-cli fehlt in PATH"
+  fi
+
+  if arduino-cli core list | awk '{print $1}' | grep -qx "esp32:esp32"; then
+    ok "ESP32 Core bereits installiert"
+    return
+  fi
+
+  log "Installiere fehlenden ESP32 Core …"
+  arduino-cli core update-index --additional-urls "$ESP32_INDEX_URL"
+  arduino-cli core install esp32:esp32 --additional-urls "$ESP32_INDEX_URL"
+  ok "ESP32 Core installiert"
+}
+
 [[ "$(id -u)" -eq 0 ]] && die "Bitte als normaler User ausführen, nicht root."
 command -v git >/dev/null 2>&1 || die "git fehlt"
 command -v systemctl >/dev/null 2>&1 || die "systemctl fehlt"
+
+export PATH="$HOME/.local/bin:$PATH"
 
 if [[ ! -d "$INSTALL_DIR" ]]; then
   log "Installationsordner fehlt, klone Repo neu"
@@ -67,6 +103,10 @@ if [[ -f "$REQUIREMENTS" ]]; then
 else
   "$VENV_DIR/bin/pip" install -q --upgrade pillow
 fi
+
+# Toolchain für ESP-Workflows selbstheilend bereitstellen
+ensure_arduino_cli
+ensure_esp32_core
 
 if [[ "$SKIP_SERVICE_RESTART" -eq 1 ]]; then
   log "Service-Restart übersprungen (SKIP_SERVICE_RESTART=1)"

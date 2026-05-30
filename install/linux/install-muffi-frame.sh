@@ -16,6 +16,8 @@ SERVICE_NAME="muffi-frame"
 PORT="${PORT:-8765}"
 VENV_DIR="$INSTALL_DIR/.venv"
 SERVICE_FILE="$HOME/.config/systemd/user/${SERVICE_NAME}.service"
+ARDUINO_CLI_BIN="$HOME/.local/bin/arduino-cli"
+ESP32_INDEX_URL="${ESP32_INDEX_URL:-https://espressif.github.io/arduino-esp32/package_esp32_index.json}"
 
 # ── Farben & Logging ────────────────────────────────────────────────────────
 RED='\033[0;31m'; GRN='\033[0;32m'; YEL='\033[1;33m'; BLU='\033[1;34m'; NC='\033[0m'
@@ -23,6 +25,38 @@ log()  { printf "${BLU}[+]${NC} %s\n" "$*"; }
 ok()   { printf "${GRN}[✓]${NC} %s\n" "$*"; }
 warn() { printf "${YEL}[!]${NC} %s\n" "$*"; }
 die()  { printf "${RED}[✗] FEHLER:${NC} %s\n" "$*" >&2; exit 1; }
+
+ensure_arduino_cli() {
+  if command -v arduino-cli >/dev/null 2>&1; then
+    ok "arduino-cli vorhanden ($(arduino-cli version | head -n1))"
+    return
+  fi
+
+  log "arduino-cli fehlt → installiere lokal unter ~/.local/bin …"
+  mkdir -p "$HOME/.local/bin"
+  curl -fsSL https://raw.githubusercontent.com/arduino/arduino-cli/master/install.sh | BINDIR="$HOME/.local/bin" sh
+  export PATH="$HOME/.local/bin:$PATH"
+
+  command -v arduino-cli >/dev/null 2>&1 || die "arduino-cli Installation fehlgeschlagen"
+  ok "arduino-cli installiert ($(arduino-cli version | head -n1))"
+}
+
+ensure_esp32_core() {
+  log "ESP32 Toolchain prüfen (esp32:esp32) …"
+  if ! command -v arduino-cli >/dev/null 2>&1; then
+    die "arduino-cli fehlt in PATH"
+  fi
+
+  if arduino-cli core list | awk '{print $1}' | grep -qx "esp32:esp32"; then
+    ok "ESP32 Core bereits installiert"
+    return
+  fi
+
+  log "Installiere ESP32 Core …"
+  arduino-cli core update-index --additional-urls "$ESP32_INDEX_URL"
+  arduino-cli core install esp32:esp32 --additional-urls "$ESP32_INDEX_URL"
+  ok "ESP32 Core installiert"
+}
 
 # ── Fehler-Trap ─────────────────────────────────────────────────────────────
 trap 'die "Unerwarteter Fehler in Zeile $LINENO. Installation abgebrochen."' ERR
@@ -33,6 +67,9 @@ trap 'die "Unerwarteter Fehler in Zeile $LINENO. Installation abgebrochen."' ERR
 command -v sudo    >/dev/null 2>&1 || die "sudo fehlt – bitte installieren."
 command -v apt-get >/dev/null 2>&1 || die "Dieser Installer benötigt apt-get (Debian/Ubuntu/Raspberry Pi OS)."
 command -v systemctl >/dev/null 2>&1 || die "systemctl nicht gefunden – kein systemd?"
+
+# ~/.local/bin in PATH für aktuelle Session
+export PATH="$HOME/.local/bin:$PATH"
 
 # ── Systempakete ─────────────────────────────────────────────────────────────
 log "Systempakete prüfen / installieren …"
@@ -69,6 +106,10 @@ else
   "$VENV_DIR/bin/pip" install -q --upgrade pillow
   ok "Fallback-Abhängigkeiten installiert (pillow)"
 fi
+
+# ── Arduino CLI + ESP32 Core (für Erst-Flash/OTA Workflows) ───────────────
+ensure_arduino_cli
+ensure_esp32_core
 
 # ── Port-Konflikt prüfen ─────────────────────────────────────────────────────
 if ss -tlnp 2>/dev/null | grep -q ":${PORT} " && \
