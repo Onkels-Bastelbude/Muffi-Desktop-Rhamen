@@ -642,6 +642,48 @@ def sanitize_led_config(raw):
     }
 
 
+def clamp_motor_pulse(value, fallback):
+    try:
+        v = int(value)
+    except Exception:
+        v = int(fallback)
+    if v < 500:
+        v = 500
+    if v > 8000:
+        v = 8000
+    return v
+
+
+def clamp_motor_delay_ms(value, fallback=600):
+    try:
+        v = int(value)
+    except Exception:
+        v = int(fallback)
+    if v < 120:
+        v = 120
+    if v > 5000:
+        v = 5000
+    return v
+
+
+def sanitize_motor_config(raw):
+    raw = raw or {}
+    cmd = str(raw.get("commandOrientation", "") or "").strip().lower()
+    if cmd not in ("portrait", "landscape"):
+        cmd = ""
+
+    return {
+        "enabled": bool(raw.get("enabled", True)),
+        "portraitPulse": clamp_motor_pulse(raw.get("portraitPulse", 1638), 1638),
+        "landscapePulse": clamp_motor_pulse(raw.get("landscapePulse", 4915), 4915),
+        "moveDelayMs": clamp_motor_delay_ms(raw.get("moveDelayMs", 600), 600),
+        "commandToken": str(raw.get("commandToken", "") or "")[:64],
+        "commandOrientation": cmd,
+        "source": str(raw.get("source", "server") or "server")[:32],
+        "updatedAt": float(raw.get("updatedAt") or 0.0),
+    }
+
+
 def sanitize_wlan_config(raw):
     raw = raw or {}
     ssid = str(raw.get("ssid", "") or "").strip()[:128]
@@ -696,6 +738,7 @@ def load_config():
     cfg = {
         "refreshMs": DEFAULT_REFRESH_MS,
         "led": sanitize_led_config({}),
+        "motor": sanitize_motor_config({}),
         "wlan": sanitize_wlan_config({}),
         "espSync": sanitize_esp_sync({}),
         "storage": sanitize_storage_config({}),
@@ -706,6 +749,7 @@ def load_config():
             disk = json.load(f)
             cfg["refreshMs"] = clamp_refresh_ms(disk.get("refreshMs", DEFAULT_REFRESH_MS))
             cfg["led"] = sanitize_led_config(disk.get("led", {}))
+            cfg["motor"] = sanitize_motor_config(disk.get("motor", {}))
             cfg["wlan"] = sanitize_wlan_config(disk.get("wlan", {}))
             cfg["espSync"] = sanitize_esp_sync(disk.get("espSync", {}))
             cfg["storage"] = sanitize_storage_config(disk.get("storage", {}))
@@ -720,6 +764,7 @@ def save_config(cfg):
     payload = {
         "refreshMs": clamp_refresh_ms(cfg.get("refreshMs", DEFAULT_REFRESH_MS)),
         "led": sanitize_led_config(cfg.get("led", {})),
+        "motor": sanitize_motor_config(cfg.get("motor", {})),
         "wlan": sanitize_wlan_config(cfg.get("wlan", {})),
         "espSync": sanitize_esp_sync(cfg.get("espSync", {})),
         "storage": sanitize_storage_config(cfg.get("storage", {})),
@@ -782,6 +827,39 @@ def get_led_config_snapshot():
         led = sanitize_led_config((SERVER_CONFIG or {}).get("led", {}))
         led["catalog"] = LED_COLORS
         return led
+
+
+def get_motor_config_snapshot():
+    return sanitize_motor_config((SERVER_CONFIG or {}).get("motor", {}))
+
+
+def update_motor_config(patch: dict):
+    current = sanitize_motor_config((SERVER_CONFIG or {}).get("motor", {}))
+
+    if "enabled" in patch:
+        current["enabled"] = bool(patch.get("enabled"))
+    if "portraitPulse" in patch:
+        current["portraitPulse"] = clamp_motor_pulse(patch.get("portraitPulse"), current.get("portraitPulse", 1638))
+    if "landscapePulse" in patch:
+        current["landscapePulse"] = clamp_motor_pulse(patch.get("landscapePulse"), current.get("landscapePulse", 4915))
+    if "moveDelayMs" in patch:
+        current["moveDelayMs"] = clamp_motor_delay_ms(patch.get("moveDelayMs"), current.get("moveDelayMs", 600))
+
+    test_orientation = str(patch.get("testOrientation", "") or "").strip().lower()
+    if test_orientation in ("portrait", "landscape"):
+        current["commandOrientation"] = test_orientation
+        current["commandToken"] = str(int(time.time() * 1000))
+
+    if bool(patch.get("clearCommand")):
+        current["commandOrientation"] = ""
+
+    if "source" in patch:
+        current["source"] = str(patch.get("source") or "server")[:32]
+
+    current["updatedAt"] = time.time()
+    SERVER_CONFIG["motor"] = current
+    save_config(SERVER_CONFIG)
+    return dict(current)
 
 
 def update_led_config(patch: dict):
@@ -2436,6 +2514,10 @@ class FrameHandler(BaseHTTPRequestHandler):
             self.send_json(get_led_config_snapshot())
             return
 
+        if path == "api/motor":
+            self.send_json(get_motor_config_snapshot())
+            return
+
         if path == "api/wlan":
             client_ip = ""
             try:
@@ -2621,6 +2703,25 @@ class FrameHandler(BaseHTTPRequestHandler):
                 out = update_led_config(payload or {})
             except Exception as e:
                 self.send_json({"error": f"LED speichern fehlgeschlagen: {e}"}, status=500)
+                return
+
+            self.send_json({"ok": True, **out})
+            return
+
+        if path == "api/motor":
+            length = int(self.headers.get("Content-Length", "0") or "0")
+            body = self.rfile.read(length) if length > 0 else b""
+
+            try:
+                payload = json.loads(body.decode("utf-8") or "{}")
+            except Exception as e:
+                self.send_json({"error": f"Ungültige Daten: {e}"}, status=400)
+                return
+
+            try:
+                out = update_motor_config(payload or {})
+            except Exception as e:
+                self.send_json({"error": f"Motor speichern fehlgeschlagen: {e}"}, status=500)
                 return
 
             self.send_json({"ok": True, **out})

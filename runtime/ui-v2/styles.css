@@ -70,3 +70,17 @@ a{color:#ffd3a5}.topbar{display:flex;justify-content:space-between;gap:10px;alig
 .status-card{padding:10px 12px;border-radius:12px;border:1px solid #7c5a3b;background:linear-gradient(180deg,#21180f,#17100b);color:#f2d3a0;font-size:13px;line-height:1.35;white-space:pre-line;box-shadow:inset 0 0 0 1px #3a2a1d,inset 0 0 14px #f2b35e22}
 .status-card-info{border-color:#7a5f46}
 .status-card-sync{border-color:#5f7a5e;box-shadow:inset 0 0 0 1px #2a3a2a,inset 0 0 14px #93d48a22}
+
+/* ===== Motor Wiring Retro Panel ===== */
+.motor-wiring-card{margin-top:8px;margin-bottom:12px;padding:10px;border:1px solid #7c5a3b;border-radius:12px;background:linear-gradient(180deg,#21180f,#17100b);box-shadow:inset 0 0 0 1px #3a2a1d,inset 0 0 20px #f2b35e22}
+.motor-wiring-title{font-size:12px;letter-spacing:.08em;text-transform:uppercase;color:#d8bc96;margin-bottom:8px}
+.motor-wiring-svg{width:100%;display:block;border:1px solid #5d4431;border-radius:10px;background:radial-gradient(circle at 25% 10%,#2a1f16,#15100b 70%)}
+.wire-box{stroke:#a17753;stroke-width:2.2}
+.wire-box.esp{fill:#251a11}.wire-box.servo{fill:#1e160f}.wire-box.btn{fill:#1b130e}.wire-box.pwr{fill:#352515}
+.wire-title{fill:#ffd8a7;font-size:18px;font-weight:700}
+.wire-pin{fill:#e6bf8d;font-size:16px}
+.wire-note{fill:#ffd8a7;font-size:15px;font-weight:700}
+.wire-line{fill:none;stroke-width:4.5;stroke-linecap:round;filter:drop-shadow(0 0 5px rgba(255,170,98,.45))}
+.wire-line.signal{stroke:#ffb36a}.wire-line.gnd{stroke:#8cb8ff}.wire-line.boot{stroke:#ff77e3}.wire-line.rst{stroke:#7bffb6}
+.motor-pin-list{display:flex;flex-wrap:wrap;gap:8px;margin-top:8px}
+.motor-pin-chip{font-size:12px;color:#f2d3a0;border:1px solid #806248;background:#241b14;padding:4px 9px;border-radius:999px}

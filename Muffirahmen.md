@@ -3,9 +3,9 @@
 Stand: 2026-05-30
 
 ## Aktueller Sprint (kurz)
-- **Done:** Vorschau, LED, WLAN-Settings, Server-Update, ESP Erst-Flash, ESP OTA/On-the-fly, Sync-Status
-- **Baustelle:** Medien, Motor
-- **Nächster Schritt:** Medien-Flow final glätten, danach Motor-UI/Funktionen abschließen
+- **Done:** Vorschau, LED, WLAN-Settings, Server-Update, ESP Erst-Flash, ESP OTA/On-the-fly, Sync-Status, Motor-API + Motor-UI + ESP-Motor-Sync (Basis)
+- **Baustelle:** Medien, Motor-Feintuning
+- **Nächster Schritt:** Medien-Flow final glätten, danach Motor-Feinschliff (Kalibrierlogik/UX)
 
 ## Leitregel (ab sofort)
 - Bei Planung, UI-Flow, Texten und Entscheidungen **immer vom Szenario „Neuinstallation / Erstinstallation“** ausgehen.
@@ -24,10 +24,10 @@ Stand: 2026-05-30
 
 ## Aktuelle Baustellen
 1. **Medien** (Flow/Handling final glätten)
-2. **Motor** (UI + Funktionsanbindung finalisieren)
+2. **Motor-Feintuning** (Kalibrierung/UX fertigziehen)
 
 ## Nächster konkreter Schritt
-- Medien-Flow abschließen (inkl. robuster Quellenwechsel), danach Motor-Bereich fertigziehen.
+- Medien-Flow abschließen (inkl. robuster Quellenwechsel), danach Motor-Bereich auf Feinschliff bringen.
 
 ## Büro-Fazit (2026-05-18) – Hybrid Quelle + Setup-Flow
 - **Bewertung:** 🟡 Gelb-Grün (sinnvoll und machbar, wenn sauber begrenzt)
@@ -61,6 +61,13 @@ Stand: 2026-05-30
 - SMB-Mount: `/mnt/muffi`
 - Live-Server-Code: `projects/muffi-bilderrahmen/runtime/frame-server.py`
 - Live-Firmware-Code: `projects/muffi-bilderrahmen/firmware/muffi-frame/muffi-frame.ino`
+- Pinout-Doku: `projects/muffi-bilderrahmen/PINOUT.md`
+
+## Hardware-Pin-Merkpunkte (für später geschlossenen Rahmen)
+- Servo Signal: `GPIO3`
+- BOOT Taster extern: `GPIO9` ↔ `GND`
+- RESET Taster extern: `EN/RST` ↔ `GND`
+- Ziel: BOOT/RESET auf Sockel auslagern (Service-Zugang ohne Rahmen zu öffnen)
 
 ## GitHub (gemeinsamer Projektstand)
 - Repo: `https://github.com/Onkels-Bastelbude/Muffi-Desktop-Rhamen`

@@ -2,6 +2,20 @@
 
 ## 2026-05-30
 
+- Motor-UI im Retro-Stil erweitert mit zentraler Verdrahtungs-Grafik:
+  - Servo-Anschlussgrafik direkt im Motor-Tab eingebaut (ESP ↔ Servo ↔ Taster)
+  - BOOT/RESET explizit als externe Taster für später geschlossenen Rahmen markiert
+  - Pin-Chips im UI ergänzt: `GPIO3`, `GPIO9`, `EN/RST`
+- Pin-Dokumentation ergänzt: `PINOUT.md` (Repo-Referenz für spätere Sockel-Auslagerung)
+
+- Motor-Basis live umgesetzt (UI ↔ Server ↔ ESP):
+  - Neue API: `GET/POST /api/motor`
+  - Server speichert Motor-Konfig (aktiv, Hoch/Quer-Puls, Fahrzeit)
+  - Test-Kommandos aus Web-UI (`testOrientation`) mit Command-Token
+  - UI-Tab „Motor“ erweitert: Aktiv-Schalter, Puls-Slider, Fahrzeit, Test Hoch/Quer
+  - Firmware zieht Motor-Konfig regelmäßig vom Server und führt Test-Kommandos aus
+  - Firmware nutzt serverseitige Motor-Werte beim automatischen Drehen (statt harter Konstanten)
+
 - Firmware-/ESP-Bereich in UI stark erweitert und vereinfacht:
   - Server-Steuerung getrennt von ESP-Steuerung
   - ESP Erst-Flash (USB): Port erkennen, Boot-Check, Flash-Start + Konsole

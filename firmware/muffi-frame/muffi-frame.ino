@@ -38,8 +38,9 @@ const char* SERVER_BASE_DEFAULT   = "http://frame-server.local:8765"; // Beispie
 #endif
 #define SERVO_PIN    3    // SG90 Signal
 #define SERVO_FREQ   50   // 50Hz
-#define SERVO_HOCHFORMAT   1638  // 0°  (~500µs  von 20ms)
-#define SERVO_QUERFORMAT   4915  // 90° (~1500µs von 20ms)
+#define SERVO_HOCHFORMAT_DEFAULT   1638  // 0°  (~500µs  von 20ms)
+#define SERVO_QUERFORMAT_DEFAULT   4915  // 90° (~1500µs von 20ms)
+#define SERVO_DELAY_MS_DEFAULT     600
 #define DOUBLE_CLICK_MS 500UL
 #define LONG_PRESS_MS   1000UL
 #define DEBOUNCE_MS     40UL
@@ -142,6 +143,12 @@ int ledColorIndex = 0;
 unsigned long lastLedPollMs = 0;
 unsigned long lastLedSyncMs = 0;
 String ledOrder = "GRB"; // Waveshare ESP32-C6 Display-M default
+bool motorEnabled = true;
+int servoHochformatPulse = SERVO_HOCHFORMAT_DEFAULT;
+int servoQuerformatPulse = SERVO_QUERFORMAT_DEFAULT;
+uint16_t servoMoveDelayMs = SERVO_DELAY_MS_DEFAULT;
+String lastMotorCommandToken = "";
+unsigned long lastMotorPollMs = 0;
 
 const uint8_t LED_CATALOG[][3] = {
   {255,   0,   0}, // rot
@@ -593,10 +600,76 @@ bool refreshLedFromServer() {
   return true;
 }
 
+void saveMotorState() {
+  prefs.putBool("mEn", motorEnabled);
+  prefs.putInt("mPH", servoHochformatPulse);
+  prefs.putInt("mPQ", servoQuerformatPulse);
+  prefs.putUInt("mDel", servoMoveDelayMs);
+}
+
+bool refreshMotorFromServer() {
+  if (!ensureWiFiConnected()) return false;
+
+  HTTPClient http;
+  http.begin(serverUrl("/api/motor"));
+  http.setTimeout(2500);
+  int code = http.GET();
+  if (code != 200) {
+    http.end();
+    return false;
+  }
+
+  String body = http.getString();
+  http.end();
+
+  JsonDocument doc;
+  if (deserializeJson(doc, body)) return false;
+
+  bool newEnabled = doc["enabled"] | motorEnabled;
+
+  int newPortrait = doc["portraitPulse"] | servoHochformatPulse;
+  if (newPortrait < 500) newPortrait = 500;
+  if (newPortrait > 8000) newPortrait = 8000;
+
+  int newLandscape = doc["landscapePulse"] | servoQuerformatPulse;
+  if (newLandscape < 500) newLandscape = 500;
+  if (newLandscape > 8000) newLandscape = 8000;
+
+  int newDelay = doc["moveDelayMs"] | int(servoMoveDelayMs);
+  if (newDelay < 120) newDelay = 120;
+  if (newDelay > 5000) newDelay = 5000;
+
+  bool changed = false;
+  if (newEnabled != motorEnabled) { motorEnabled = newEnabled; changed = true; }
+  if (newPortrait != servoHochformatPulse) { servoHochformatPulse = newPortrait; changed = true; }
+  if (newLandscape != servoQuerformatPulse) { servoQuerformatPulse = newLandscape; changed = true; }
+  if (uint16_t(newDelay) != servoMoveDelayMs) { servoMoveDelayMs = uint16_t(newDelay); changed = true; }
+  if (changed) saveMotorState();
+
+  String cmdToken = String(doc["commandToken"] | "");
+  String cmdOrientation = String(doc["commandOrientation"] | "");
+  cmdOrientation.toLowerCase();
+  if (cmdToken.length() && cmdToken != lastMotorCommandToken) {
+    lastMotorCommandToken = cmdToken;
+    if (motorEnabled) {
+      if (cmdOrientation == "portrait") {
+        Serial.println("Motor-Test: Hochformat");
+        servoMove(servoHochformatPulse);
+      } else if (cmdOrientation == "landscape") {
+        Serial.println("Motor-Test: Querformat");
+        servoMove(servoQuerformatPulse);
+      }
+    }
+  }
+
+  return true;
+}
+
 // Servo auf Position fahren und dann Signal abschalten (kein Zittern)
 void servoMove(int position) {
+  if (!motorEnabled) return;
   ledcWrite(SERVO_PIN, position);
-  delay(600);          // warten bis er da ist
+  delay(servoMoveDelayMs); // warten bis er da ist
   ledcWrite(SERVO_PIN, 0); // Signal aus = kein Brummen
 }
 
@@ -668,7 +741,7 @@ void showImage(int idx) {
   if (newRotation != currentRotation) {
     // Erst Servo drehen, dann Bild laden
     Serial.println(isLandscape ? "Servo → Querformat" : "Servo → Hochformat");
-    servoMove(isLandscape ? SERVO_QUERFORMAT : SERVO_HOCHFORMAT);
+    servoMove(isLandscape ? servoQuerformatPulse : servoHochformatPulse);
   }
   tft.setRotation(newRotation);
   currentRotation = newRotation;
@@ -936,6 +1009,17 @@ void setup() {
   ledB = prefs.getUChar("ledB", 160);
   ledColorIndex = prefs.getInt("ledIdx", 0);
   ledOrder = prefs.getString("ledOrd", "GRB");
+  motorEnabled = prefs.getBool("mEn", true);
+  servoHochformatPulse = prefs.getInt("mPH", SERVO_HOCHFORMAT_DEFAULT);
+  servoQuerformatPulse = prefs.getInt("mPQ", SERVO_QUERFORMAT_DEFAULT);
+  uint32_t motorDelay = prefs.getUInt("mDel", SERVO_DELAY_MS_DEFAULT);
+  if (servoHochformatPulse < 500) servoHochformatPulse = 500;
+  if (servoHochformatPulse > 8000) servoHochformatPulse = 8000;
+  if (servoQuerformatPulse < 500) servoQuerformatPulse = 500;
+  if (servoQuerformatPulse > 8000) servoQuerformatPulse = 8000;
+  if (motorDelay < 120) motorDelay = 120;
+  if (motorDelay > 5000) motorDelay = 5000;
+  servoMoveDelayMs = uint16_t(motorDelay);
   ledOrder.toUpperCase();
   if (!(ledOrder == "RGB" || ledOrder == "GRB" || ledOrder == "BRG" || ledOrder == "BGR" || ledOrder == "RBG" || ledOrder == "GBR")) {
     ledOrder = "GRB";
@@ -945,7 +1029,7 @@ void setup() {
 
   // Servo initialisieren
   ledcAttach(SERVO_PIN, SERVO_FREQ, 16);
-  servoMove(SERVO_HOCHFORMAT); // Startposition = Hochformat
+  servoMove(servoHochformatPulse); // Startposition = Hochformat
   delay(200);
 
   tft.init();
@@ -963,6 +1047,7 @@ void setup() {
   // LED-Config vom Server holen (Web <-> ESP synchron)
   refreshLedFromServer();
   reportLedState("esp-boot");
+  refreshMotorFromServer();
 
   showStatus("Lade Liste...", TFT_GREEN);
   if (refreshFileList()) {
@@ -997,6 +1082,11 @@ void loop() {
   if (millis() - lastLedPollMs > 2000) {
     lastLedPollMs = millis();
     refreshLedFromServer();
+  }
+
+  if (millis() - lastMotorPollMs > 2200) {
+    lastMotorPollMs = millis();
+    refreshMotorFromServer();
   }
 
   // Während Upload sichtbar ist: Auto-Slideshow pausieren
