@@ -11,16 +11,11 @@ Stand: 2026-05-30
 ## Zusatz-Pins (bereits genutzt)
 
 - **Seitentaste (LED Farbwechsel):** `GPIO0` (`SIDE_BUTTON_PIN`)
-- **RGB-LED:** `RGB_BUILTIN` (Fallback `GPIO8`)
 
-## Display-Pins (ST7789 / LovyanGFX)
+## Nicht in externer Pin-Liste führen
 
-- **SCLK:** `GPIO7`
-- **MOSI:** `GPIO6`
-- **DC:** `GPIO15`
-- **CS:** `GPIO14`
-- **RST:** `GPIO21`
-- **Backlight:** `GPIO22`
+- **Display-Pins** (fest auf dem C6-Board verdrahtet)
+- **RGB-LED-Pin** (fest auf dem C6-Board)
 
 ## Verdrahtungs-Hinweise für geschlossenen Rahmen
 
