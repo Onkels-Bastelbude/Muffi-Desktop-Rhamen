@@ -668,17 +668,8 @@ bool refreshMotorFromServer() {
 // Servo auf Position fahren und dann Signal abschalten (kein Zittern)
 void servoMove(int position) {
   if (!motorEnabled) return;
-  int target = position;
-  if (target < 500) target = 500;
-  if (target > 8000) target = 8000;
-
-  int holdMs = int(servoMoveDelayMs);
-  if (holdMs < 120) holdMs = 120;
-  if (holdMs > 5000) holdMs = 5000;
-
-  // Robuster Direkt-Fahrmodus (bewährt): Zielpuls setzen, halten, dann Signal aus.
-  ledcWrite(SERVO_PIN, target);
-  delay(holdMs);
+  ledcWrite(SERVO_PIN, position);
+  delay(servoMoveDelayMs); // warten bis er da ist
   ledcWrite(SERVO_PIN, 0); // Signal aus = kein Brummen
 }
 
