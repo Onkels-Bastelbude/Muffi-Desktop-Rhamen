@@ -23,6 +23,12 @@ Danach:
 - Service Status: `systemctl --user status muffi-frame.service`
 - Logs: `journalctl --user -u muffi-frame.service -f`
 
+Der One-Click Installer richtet jetzt zusätzlich automatisch ein:
+- `arduino-cli` (lokal unter `~/.local/bin`, falls noch nicht vorhanden)
+- ESP32 Core `esp32:esp32` (inkl. Index-URL)
+
+Damit sind Erst-Flash (USB) und OTA-Workflows direkt nach Installation nutzbar.
+
 ## Update
 
 ```bash
@@ -50,3 +56,4 @@ sudo loginctl enable-linger $USER
 - Installer ist idempotent (mehrfaches Ausführen = Update).
 - Installiert nur benötigte Pakete, kein Full-Upgrade.
 - Service läuft als **User-Service** (`systemd --user`).
+- Das Update-Script hält Arduino-Toolchain ebenfalls automatisch aktuell/komplett.

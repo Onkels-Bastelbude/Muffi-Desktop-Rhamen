@@ -11,6 +11,10 @@ System läuft und ist aktuell funktionsfähig.
 - Uninstall-Script: `install/linux/uninstall-muffi-frame.sh`
 - Zielgruppe aktuell: **DIY Linux/Raspberry Pi (Debian/Ubuntu)**
 - Quickstart + Optionen stehen in `README.md`
+- Installer + Update setzen automatisch auf:
+  - `arduino-cli` (falls fehlend)
+  - ESP32 Core `esp32:esp32`
+  - damit sind USB-Erstflash und OTA ohne manuelle Toolchain-Nacharbeit nutzbar
 
 ## Code-Orte (Stand 2026-05-16)
 - Server-Code (live): `projects/muffi-bilderrahmen/runtime/frame-server.py`
@@ -39,8 +43,16 @@ System läuft und ist aktuell funktionsfähig.
   - Gleicher Share: UNC wird auf Linux-Mountpfad umgesetzt
   - Anderer Share: klare Admin-Meldung + Button für Share-Wechsel
 - Firmware-Bereich:
-  - OTA-Prüfung
-  - USB-Flash-Hinweis
+  - **Server**: Update/Restart/Console
+  - **ESP Erst-Flash (USB)**:
+    - Port-Erkennung
+    - Boot-Mode-Check
+    - USB-Flash + Live-Console
+  - **ESP On-the-fly (WLAN/OTA)**:
+    - Erreichbarkeitscheck
+    - Config-Senden an ESP
+    - OTA-Update + Live-Console
+    - Sync-Status (ob ESP Web-UI-Konfig bereits gezogen hat)
 
 ### Storage- und Share-APIs
 - `GET /api/storage` – aktueller Storage-Zustand (active path/source, local/network health)
@@ -60,6 +72,12 @@ System läuft und ist aktuell funktionsfähig.
 - `POST /api/frame-state` – ESP meldet aktuell angezeigtes Bild
 - `GET /api/wlan` / `POST /api/wlan` – WLAN/ESP/Server-Basiskonfig
 - `POST /api/wlan/test` – ESP-Erreichbarkeit testen
+- `POST /api/esp/prepare` – ESP-Konfig vorbereiten + Sync-Token setzen
+- `GET /api/esp/sync-status` – Sync-Status (Token/ACK, letzter Pull)
+- `GET /api/esp/update/status` / `POST /api/esp/update/start` – OTA Job-Status/Start
+- `GET /api/esp/usb/status` – USB-Ports erkennen
+- `POST /api/esp/usb/check-boot` – Boot-Modus per Port testen
+- `GET /api/esp/usb/flash/status` / `POST /api/esp/usb/flash/start` – USB-Flash Job-Status/Start
 
 ## Verhalten „Aktuell auf dem Rahmen"
 
