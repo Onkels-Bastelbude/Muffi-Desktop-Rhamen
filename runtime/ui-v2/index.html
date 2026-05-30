@@ -175,14 +175,17 @@
       </section>
       <section class="view" data-view="firmware">
         <h2>Firmware</h2>
-        <p class="hint">Getrennt nach Server und ESP.</p>
-        <h3>Server</h3>
-        <div class="row">
-          <button type="button" id="fw-update-btn">🧰 Server Update starten</button>
-          <button type="button" id="fw-restart-btn">🔁 Server neu starten</button>
-          <button type="button" id="fw-console-clear-btn">Konsole leeren</button>
+        <div class="step-frame">
+          <div class="step-frame-title">Server-Steuerung</div>
+          <div class="row">
+            <button type="button" id="fw-update-btn" class="step-btn">🧰 Server Update starten</button>
+            <button type="button" id="fw-restart-btn" class="step-btn">🔁 Server neu starten</button>
+            <button type="button" id="fw-console-clear-btn" class="step-btn">🧹 Konsole leeren</button>
+          </div>
         </div>
-        <div id="fw-server-msg" class="msg"></div>
+        <div class="esp-status-stack">
+          <div id="fw-server-msg" class="status-card status-card-info"></div>
+        </div>
         <div id="fw-console-wrap" class="fw-console-wrap hidden">
           <div class="fw-console-head">Muffi Console 1978</div>
           <pre id="fw-console-output" class="fw-console-output"></pre>
