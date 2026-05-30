@@ -210,8 +210,10 @@
             <button type="button" id="fw-esp-prepare-btn" class="step-btn">Step 3) 🛰️ Config an ESP senden</button>
           </div>
         </div>
-        <div id="fw-esp-msg" class="msg"></div>
-        <div id="fw-esp-sync-status" class="msg"></div>
+        <div class="esp-status-stack">
+          <div id="fw-esp-msg" class="status-card status-card-info"></div>
+          <div id="fw-esp-sync-status" class="status-card status-card-sync"></div>
+        </div>
         <div id="fw-esp-console-wrap" class="fw-console-wrap hidden">
           <div class="fw-console-head">ESP OTA Console</div>
           <pre id="fw-esp-console-output" class="fw-console-output"></pre>

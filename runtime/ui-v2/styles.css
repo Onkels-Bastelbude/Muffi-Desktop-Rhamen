@@ -65,3 +65,8 @@ a{color:#ffd3a5}.topbar{display:flex;justify-content:space-between;gap:10px;alig
 .step-btn{position:relative;border:1px solid #8e6642;background:linear-gradient(180deg,#5a3926,#3b2619);box-shadow:inset 0 0 0 1px #2c1c12, inset 0 0 14px #ffb15a33, 0 0 10px #0008;outline:1px solid #2b1b11;outline-offset:2px;font-weight:700}
 .step-btn:hover{border-color:#d29356;box-shadow:inset 0 0 0 1px #3a2518,inset 0 0 18px #ffb15a55,0 0 12px #ff9f3a55}
 .step-btn:disabled{opacity:.7}
+
+.esp-status-stack{display:grid;gap:8px;margin-top:10px}
+.status-card{padding:10px 12px;border-radius:12px;border:1px solid #7c5a3b;background:linear-gradient(180deg,#21180f,#17100b);color:#f2d3a0;font-size:13px;line-height:1.35;white-space:pre-line;box-shadow:inset 0 0 0 1px #3a2a1d,inset 0 0 14px #f2b35e22}
+.status-card-info{border-color:#7a5f46}
+.status-card-sync{border-color:#5f7a5e;box-shadow:inset 0 0 0 1px #2a3a2a,inset 0 0 14px #93d48a22}

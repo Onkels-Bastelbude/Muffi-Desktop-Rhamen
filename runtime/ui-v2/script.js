@@ -567,7 +567,7 @@ $('#fw-ota-btn')?.addEventListener('click', async () => {
     $('#fw-esp-msg').textContent = 'Prüfe OTA-Erreichbarkeit…';
     const host = ($('#wlan-esp-host')?.value || '').trim();
     const d = await jpost('/api/wlan/test', { espHost: host });
-    $('#fw-esp-msg').textContent = `✅ ${d.message || 'ESP erreichbar'} · Nächster Schritt: OTA Upload aus der IDE/CLI starten.`;
+    $('#fw-esp-msg').textContent = `✅ ${d.message || 'ESP erreichbar'}\nNächster Schritt: Step 2 „🚀 OTA Update starten“.`;
   } catch (e2) {
     $('#fw-esp-msg').textContent = '❌ OTA aktuell nicht erreichbar: ' + e2.message;
   }
@@ -634,7 +634,7 @@ async function refreshEspSyncStatus() {
     const otaState = (ota.phase === 'done')
       ? 'OTA zuletzt erfolgreich'
       : (ota.phase === 'error' ? `OTA Fehler (exit ${ota.exitCode ?? 'unknown'})` : 'OTA noch nicht gelaufen');
-    $('#fw-esp-sync-status').textContent = `${state} · ESP: ${host} · Letzter Pull: ${age} · Quelle: ${ip} · ${otaState}`;
+    $('#fw-esp-sync-status').textContent = `${state}\nESP: ${host}\nLetzter Pull: ${age}\nQuelle: ${ip}\n${otaState}`;
   } catch (e) {
     $('#fw-esp-sync-status').textContent = '⚠️ ESP Sync-Status nicht verfügbar: ' + (e?.message || e);
   }
