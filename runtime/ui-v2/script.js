@@ -383,33 +383,21 @@ function updateMotorSpeedLabel(step) {
   $('#motor-speed-step-val').textContent = `${s}`;
 }
 
-function pulseToDeg(pulse, p0, p90) {
-  const a = Number(p0) || 1638;
-  const b = Number(p90) || 4915;
-  const x = Number(pulse) || a;
-  if (a === b) return 0;
-  const deg = ((x - a) * 90) / (b - a);
-  return Math.round(Math.max(-45, Math.min(180, deg)));
-}
-
 function updateMotorAngleLabels() {
   const p = Number($('#motor-portrait')?.value || 1638);
   const q = Number($('#motor-landscape')?.value || 4915);
-  const pDeg = pulseToDeg(p, p, q);
-  const qDeg = pulseToDeg(q, p, q);
-  $('#motor-portrait-val').textContent = `${p} (${pDeg}°)`;
-  $('#motor-landscape-val').textContent = `${q} (${qDeg}°)`;
+  $('#motor-portrait-val').textContent = String(p);
+  $('#motor-landscape-val').textContent = String(q);
 }
 
 function angleSaveMessage() {
   const p = Number($('#motor-portrait')?.value || 1638);
   const q = Number($('#motor-landscape')?.value || 4915);
-  const pDeg = pulseToDeg(p, p, q);
-  const qDeg = pulseToDeg(q, p, q);
-  return `✅ Winkel gespeichert (Hoch: ${pDeg}° / Quer: ${qDeg}°) · aktiv beim nächsten Bildwechsel`;
+  return `✅ Winkel gespeichert (Hoch: ${p} / Quer: ${q}) · aktiv beim nächsten Bildwechsel`;
 }
 
 let motorEnabledState = true;
+let motorAnglesDirty = false;
 
 function setMotorEnabledButtons(enabled) {
   motorEnabledState = !!enabled;
@@ -437,6 +425,7 @@ async function motorSave(patch, successText){
     $('#motor-speed-step').value = speedStep;
     updateMotorSpeedLabel(speedStep);
     updateMotorAngleLabels();
+    motorAnglesDirty = false;
     $('#motor-msg').textContent = successText || '✅ Motor gespeichert';
   } catch (e) {
     $('#motor-msg').textContent = '❌ ' + (e?.message || e);
@@ -447,19 +436,25 @@ async function motorRefresh(){
   try {
     const d = await jget('/api/motor');
     setMotorEnabledButtons(!!d.enabled);
-    $('#motor-portrait').value = Number(d.portraitPulse || 1638);
-    $('#motor-landscape').value = Number(d.landscapePulse || 4915);
+
+    const activeId = document.activeElement?.id || '';
+    const editingAngles = motorAnglesDirty || activeId === 'motor-portrait' || activeId === 'motor-landscape';
+    if (!editingAngles) {
+      $('#motor-portrait').value = Number(d.portraitPulse || 1638);
+      $('#motor-landscape').value = Number(d.landscapePulse || 4915);
+      updateMotorAngleLabels();
+    }
+
     const speedStep = motorDelayMsToStep(Number(d.moveDelayMs || 600));
     $('#motor-speed-step').value = speedStep;
     updateMotorSpeedLabel(speedStep);
-    updateMotorAngleLabels();
   } catch (_) {}
 }
 
 $('#motor-on-btn')?.addEventListener('click', () => motorSave({ enabled: true }, '✅ Motor gespeichert (AN)'));
 $('#motor-off-btn')?.addEventListener('click', () => motorSave({ enabled: false }, '✅ Motor gespeichert (AUS)'));
-$('#motor-portrait')?.addEventListener('input', () => { updateMotorAngleLabels(); });
-$('#motor-landscape')?.addEventListener('input', () => { updateMotorAngleLabels(); });
+$('#motor-portrait')?.addEventListener('input', () => { motorAnglesDirty = true; updateMotorAngleLabels(); });
+$('#motor-landscape')?.addEventListener('input', () => { motorAnglesDirty = true; updateMotorAngleLabels(); });
 $('#motor-speed-step')?.addEventListener('input', () => updateMotorSpeedLabel($('#motor-speed-step')?.value || 5));
 $('#motor-speed-step')?.addEventListener('change', () => motorSave({ moveDelayMs: motorStepToDelayMs($('#motor-speed-step')?.value || 5), enabled: motorEnabledState }, '✅ Speed gespeichert · aktiv beim nächsten Bildwechsel'));
 $('#motor-save-btn')?.addEventListener('click', () => motorSave(getMotorFormPayload(), angleSaveMessage()));
