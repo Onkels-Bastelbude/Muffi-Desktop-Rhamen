@@ -147,6 +147,7 @@ bool motorEnabled = true;
 int servoHochformatPulse = SERVO_HOCHFORMAT_DEFAULT;
 int servoQuerformatPulse = SERVO_QUERFORMAT_DEFAULT;
 uint16_t servoMoveDelayMs = SERVO_DELAY_MS_DEFAULT;
+int currentServoPulse = SERVO_HOCHFORMAT_DEFAULT;
 String lastMotorCommandToken = "";
 unsigned long lastMotorPollMs = 0;
 
@@ -668,9 +669,52 @@ bool refreshMotorFromServer() {
 // Servo auf Position fahren und dann Signal abschalten (kein Zittern)
 void servoMove(int position) {
   if (!motorEnabled) return;
-  ledcWrite(SERVO_PIN, position);
-  delay(servoMoveDelayMs); // warten bis er da ist
+  int target = position;
+  if (target < 500) target = 500;
+  if (target > 8000) target = 8000;
+
+  int from = currentServoPulse;
+  if (from < 500 || from > 8000) from = target;
+
+  int speedRef = int(servoMoveDelayMs);
+  if (speedRef < 120) speedRef = 120;
+  if (speedRef > 5000) speedRef = 5000;
+
+  // Schrittweise fahren (sichtbarer Speed-Unterschied)
+  // klein/schnell -> größere Puls-Sprünge + kurze Pausen
+  // groß/langsam -> kleinere Puls-Sprünge + längere Pausen
+  int pulseStep = map(speedRef, 120, 5000, 260, 14);
+  int stepPauseMs = map(speedRef, 120, 5000, 2, 20);
+  if (pulseStep < 4) pulseStep = 4;
+  if (stepPauseMs < 1) stepPauseMs = 1;
+
+  if (target == from) {
+    ledcWrite(SERVO_PIN, target);
+    delay(80);
+    ledcWrite(SERVO_PIN, 0);
+    currentServoPulse = target;
+    return;
+  }
+
+  int dir = (target > from) ? 1 : -1;
+  int pulse = from;
+
+  while (true) {
+    int nextPulse = pulse + dir * pulseStep;
+    if ((dir > 0 && nextPulse >= target) || (dir < 0 && nextPulse <= target)) {
+      nextPulse = target;
+    }
+
+    ledcWrite(SERVO_PIN, nextPulse);
+    pulse = nextPulse;
+
+    if (pulse == target) break;
+    delay(stepPauseMs);
+  }
+
+  delay(80);
   ledcWrite(SERVO_PIN, 0); // Signal aus = kein Brummen
+  currentServoPulse = target;
 }
 
 int jpegDraw(JPEGDRAW* pDraw) {
@@ -1029,6 +1073,7 @@ void setup() {
 
   // Servo initialisieren
   ledcAttach(SERVO_PIN, SERVO_FREQ, 16);
+  currentServoPulse = servoHochformatPulse;
   servoMove(servoHochformatPulse); // Startposition = Hochformat
   delay(200);
 
