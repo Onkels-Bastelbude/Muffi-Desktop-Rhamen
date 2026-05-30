@@ -202,10 +202,13 @@
         </div>
 
         <h3 style="margin-top:14px;">ESP – On-the-fly Update (WLAN/OTA)</h3>
-        <div class="row">
-          <button type="button" id="fw-ota-btn">A) ESP erreichbar prüfen</button>
-          <button type="button" id="fw-esp-prepare-btn">B) Config an ESP senden</button>
-          <button type="button" id="fw-esp-update-btn">C) OTA Update starten</button>
+        <div class="step-frame">
+          <div class="step-frame-title">Schritte</div>
+          <div class="row">
+            <button type="button" id="fw-ota-btn">Step 1) ESP erreichbar prüfen</button>
+            <button type="button" id="fw-esp-update-btn">Step 2) OTA Update starten</button>
+            <button type="button" id="fw-esp-prepare-btn">Step 3) Config an ESP senden</button>
+          </div>
         </div>
         <div id="fw-esp-msg" class="msg"></div>
         <div id="fw-esp-sync-status" class="msg"></div>
