@@ -564,35 +564,35 @@ $('#share-switch-check-btn')?.addEventListener('click', async () => {
 
 $('#fw-ota-btn')?.addEventListener('click', async () => {
   try {
-    $('#fw-msg').textContent = 'Prüfe OTA-Erreichbarkeit…';
+    $('#fw-esp-msg').textContent = 'Prüfe OTA-Erreichbarkeit…';
     const host = ($('#wlan-esp-host')?.value || '').trim();
     const d = await jpost('/api/wlan/test', { espHost: host });
-    $('#fw-msg').textContent = `✅ ${d.message || 'ESP erreichbar'} · Nächster Schritt: OTA Upload aus der IDE/CLI starten.`;
+    $('#fw-esp-msg').textContent = `✅ ${d.message || 'ESP erreichbar'} · Nächster Schritt: OTA Upload aus der IDE/CLI starten.`;
   } catch (e2) {
-    $('#fw-msg').textContent = '❌ OTA aktuell nicht erreichbar: ' + e2.message;
+    $('#fw-esp-msg').textContent = '❌ OTA aktuell nicht erreichbar: ' + e2.message;
   }
 });
 
 $('#fw-usb-btn')?.addEventListener('click', () => {
-  $('#fw-msg').textContent = 'ℹ️ USB-Flash: ESP per Datenkabel verbinden, BOOT halten + RESET tippen, dann Upload starten.';
+  $('#fw-esp-msg').textContent = 'ℹ️ USB-Flash: ESP per Datenkabel verbinden, BOOT halten + RESET tippen, dann Upload starten.';
 });
 
 $('#fw-restart-btn')?.addEventListener('click', async () => {
   try {
-    $('#fw-msg').textContent = '🔁 Server-Restart wird ausgelöst…';
+    $('#fw-server-msg').textContent = '🔁 Server-Restart wird ausgelöst…';
     const d = await jpost('/api/server/restart', {});
     fwAppendLine(d.message || 'Restart ausgelöst');
-    $('#fw-msg').textContent = '🔁 Restart ausgelöst. UI verbindet sich gleich neu…';
+    $('#fw-server-msg').textContent = '🔁 Restart ausgelöst. UI verbindet sich gleich neu…';
     setTimeout(async () => {
       try {
         await refreshServer();
-        $('#fw-msg').textContent = '✅ Server wieder erreichbar.';
+        $('#fw-server-msg').textContent = '✅ Server wieder erreichbar.';
       } catch (_) {
-        $('#fw-msg').textContent = '⏳ Warte auf Server… bitte kurz Seite neu laden.';
+        $('#fw-server-msg').textContent = '⏳ Warte auf Server… bitte kurz Seite neu laden.';
       }
     }, 2500);
   } catch (e2) {
-    $('#fw-msg').textContent = '❌ Restart fehlgeschlagen: ' + e2.message;
+    $('#fw-server-msg').textContent = '❌ Restart fehlgeschlagen: ' + e2.message;
   }
 });
 
@@ -642,10 +642,10 @@ async function fwPollUpdateStatus() {
     fwSetRunningUi(false);
     if (phase === 'done') {
       fwAppendLine('✅ Update abgeschlossen.');
-      $('#fw-msg').textContent = '✅ Update abgeschlossen';
+      $('#fw-server-msg').textContent = '✅ Update abgeschlossen';
     } else if (phase === 'error') {
       fwAppendLine(`❌ Update fehlgeschlagen (exit ${s.exitCode ?? 'unknown'})`);
-      $('#fw-msg').textContent = `❌ Update fehlgeschlagen (exit ${s.exitCode ?? 'unknown'})`;
+      $('#fw-server-msg').textContent = `❌ Update fehlgeschlagen (exit ${s.exitCode ?? 'unknown'})`;
     }
   } catch (e) {
     fwAppendLine('❌ Status konnte nicht gelesen werden: ' + (e?.message || e));
@@ -659,7 +659,7 @@ $('#fw-update-btn')?.addEventListener('click', async () => {
     fwResetConsole();
     $('#fw-console-wrap')?.classList.remove('hidden');
     fwAppendLine('🟠 Starte Update…');
-    $('#fw-msg').textContent = 'Update gestartet…';
+    $('#fw-server-msg').textContent = 'Update gestartet…';
     fwSetRunningUi(true);
 
     const d = await jpost('/api/update/start', {});
@@ -668,13 +668,13 @@ $('#fw-update-btn')?.addEventListener('click', async () => {
   } catch (e) {
     fwSetRunningUi(false);
     fwAppendLine('❌ Start fehlgeschlagen: ' + (e?.message || e));
-    $('#fw-msg').textContent = '❌ Update konnte nicht gestartet werden: ' + (e?.message || e);
+    $('#fw-server-msg').textContent = '❌ Update konnte nicht gestartet werden: ' + (e?.message || e);
   }
 });
 
 $('#fw-console-clear-btn')?.addEventListener('click', () => {
   fwResetConsole();
-  $('#fw-msg').textContent = 'Konsole geleert.';
+  $('#fw-server-msg').textContent = 'Konsole geleert.';
 });
 
 $('#upload-form')?.addEventListener('submit', (e) => {
