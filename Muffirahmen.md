@@ -1,11 +1,11 @@
 # Muffirahmen – Projektstatus
 
-Stand: 2026-05-30
+Stand: 2026-05-31
 
 ## Aktueller Sprint (kurz)
-- **Done:** Vorschau, LED, WLAN-Settings, Server-Update, ESP Erst-Flash, ESP OTA/On-the-fly, Sync-Status, Motor-API + Motor-UI + ESP-Motor-Sync (Basis)
-- **Baustelle:** Medien, Motor-Feintuning
-- **Nächster Schritt:** Medien-Flow final glätten, danach Motor-Feinschliff (Kalibrierlogik/UX)
+- **Done:** Vorschau, LED, WLAN-Settings, Server-Update, ESP Erst-Flash, ESP OTA/On-the-fly, Sync-Status, Motor-API + Motor-UI + ESP-Motor-Sync (abgeschlossen)
+- **Baustelle:** Medien
+- **Nächster Schritt:** Medien-Flow final glätten
 
 ## Leitregel (ab sofort)
 - Bei Planung, UI-Flow, Texten und Entscheidungen **immer vom Szenario „Neuinstallation / Erstinstallation“** ausgehen.
@@ -24,10 +24,9 @@ Stand: 2026-05-30
 
 ## Aktuelle Baustellen
 1. **Medien** (Flow/Handling final glätten)
-2. **Motor-Feintuning** (Kalibrierung/UX fertigziehen)
 
 ## Nächster konkreter Schritt
-- Medien-Flow abschließen (inkl. robuster Quellenwechsel), danach Motor-Bereich auf Feinschliff bringen.
+- Medien-Flow abschließen (inkl. robuster Quellenwechsel).
 
 ## Büro-Fazit (2026-05-18) – Hybrid Quelle + Setup-Flow
 - **Bewertung:** 🟡 Gelb-Grün (sinnvoll und machbar, wenn sauber begrenzt)
@@ -50,18 +49,19 @@ Stand: 2026-05-30
 - **Status aktuell:** Auf Wunsch geparkt bis nach V1-Stabilisierung (kein Refactor jetzt).
 
 ## Offene Fragen
-- Keine kritischen offenen Fragen; Fokus liegt auf den 2 Baustellen (Medien, Motor).
+- Keine kritischen offenen Fragen; Fokus liegt auf Medien.
 
 ## Blocker
 - Keine harten technischen Blocker bekannt
 
 ## Betriebsdaten (aktuell bekannt)
-- Server-Basis: `http://192.168.50.68:8765`
-- ESP (zuletzt): `192.168.50.79`
+- Server-Basis: `http://<FRAME_SERVER_HOST>:8765`
+- ESP (zuletzt): `<ESP_HOST_ODER_IP>`
 - SMB-Mount: `/mnt/muffi`
 - Live-Server-Code: `projects/muffi-bilderrahmen/runtime/frame-server.py`
 - Live-Firmware-Code: `projects/muffi-bilderrahmen/firmware/muffi-frame/muffi-frame.ino`
 - Pinout-Doku: `projects/muffi-bilderrahmen/PINOUT.md`
+- Hinweis: Persönliche Netz-/Hostdaten werden im Repo nur als Platzhalter dokumentiert.
 
 ## Hardware-Pin-Merkpunkte (für später geschlossenen Rahmen)
 - Servo Signal: `GPIO3`

@@ -1,5 +1,14 @@
 # Arbeitsprotokoll – Muffi Bilderrahmen
 
+## 2026-05-31
+
+- Motor-Feature als abgeschlossen markiert (läuft stabil im Bildwechsel + Tests).
+- Motor-UI aufgeräumt (Retro-Blöcke, AN/AUS-Buttons, Status-Rahmen, Test-Buttons im Speed-Bereich).
+- Winkelanzeige wieder auf reine Stellwerte zurückgestellt (Gradanzeige entfernt).
+- Slider-Rücksprung beim Editieren behoben (Winkelwerte bleiben beim Schieben stabil bis Speichern).
+- Projektdoku bereinigt: Motor aus offener Baustelle entfernt, Fokus auf Medien gesetzt.
+- Datenschutz-Doku-Härtung: persönliche IP/Host-Angaben in `Muffirahmen.md` durch Platzhalter ersetzt.
+
 ## 2026-05-30
 
 - Motor-UI im Retro-Stil erweitert mit zentraler Verdrahtungs-Grafik:

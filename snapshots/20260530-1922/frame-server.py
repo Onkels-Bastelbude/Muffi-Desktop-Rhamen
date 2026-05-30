@@ -158,7 +158,7 @@ def normalize_network_path_input(value):
         return PHOTO_DIR, "", ""
 
     # Windows UNC oder Backslash-Eingaben automatisch auf Linux-Mountpfad mappen.
-    # Beispiel: \\BOOBIES\Share\Ordner A\2012 -> /mnt/muffi/Ordner A/2012
+    # Beispiel: \\SERVER\Share\Ordner A\2012 -> /mnt/muffi/Ordner A/2012
     if raw.startswith("\\\\") or "\\" in raw or (raw.startswith("//") and not raw.startswith("/mnt/")):
         cleaned = raw.replace("/", "\\").strip("\\")
         parts = [p.strip() for p in cleaned.split("\\") if p.strip()]
@@ -1064,7 +1064,7 @@ def test_share_credentials(username: str, password: str, network_path: str = "")
             share = share or req2.get("share", "")
 
     if not host:
-        host = "BOOBIES"
+        host = "SERVER"
     if not share:
         share = "Bilder MUffi"
 

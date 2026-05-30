@@ -3,7 +3,7 @@ set -euo pipefail
 
 ESP_HOST="${ESP_HOST:-${1:-}}"
 if [[ -z "$ESP_HOST" ]]; then
-  echo "[error] ESP_HOST fehlt (z. B. ESP_HOST=192.168.50.79)"
+  echo "[error] ESP_HOST fehlt (z. B. ESP_HOST=<ESP_HOST_ODER_IP>)"
   exit 2
 fi
 
