@@ -13,6 +13,15 @@ Stand: 2026-05-30
 - **Seitentaste (LED Farbwechsel):** `GPIO0` (`SIDE_BUTTON_PIN`)
 - **RGB-LED:** `RGB_BUILTIN` (Fallback `GPIO8`)
 
+## Display-Pins (ST7789 / LovyanGFX)
+
+- **SCLK:** `GPIO7`
+- **MOSI:** `GPIO6`
+- **DC:** `GPIO15`
+- **CS:** `GPIO14`
+- **RST:** `GPIO21`
+- **Backlight:** `GPIO22`
+
 ## Verdrahtungs-Hinweise für geschlossenen Rahmen
 
 - Für den später geschlossenen Rahmen **BOOT** und **RESET** als externe Taster auf den Sockel herausführen.

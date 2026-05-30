@@ -165,8 +165,17 @@
           <img class="motor-wiring-svg" src="/ui-v2/motor-wiring.jpg" alt="ESP32-C6 Servo Wiring mit BOOT und RESET Tastern" />
           <div class="motor-pin-list">
             <span class="motor-pin-chip">Servo SIG = GPIO3</span>
-            <span class="motor-pin-chip">BOOT = GPIO9 ↔ GND</span>
-            <span class="motor-pin-chip">RESET = EN/RST ↔ GND</span>
+            <span class="motor-pin-chip">BOOT Taster = GPIO9 ↔ GND</span>
+            <span class="motor-pin-chip">RESET Taster = EN/RST ↔ GND</span>
+            <span class="motor-pin-chip">Seitentaste = GPIO0 ↔ GND</span>
+            <span class="motor-pin-chip">RGB-LED = RGB_BUILTIN (Fallback GPIO8)</span>
+            <span class="motor-pin-chip">Display SCLK = GPIO7</span>
+            <span class="motor-pin-chip">Display MOSI = GPIO6</span>
+            <span class="motor-pin-chip">Display DC = GPIO15</span>
+            <span class="motor-pin-chip">Display CS = GPIO14</span>
+            <span class="motor-pin-chip">Display RST = GPIO21</span>
+            <span class="motor-pin-chip">Display BL = GPIO22</span>
+            <span class="motor-pin-chip">Gemeinsame Masse: ESP GND + Servo GND + 5V GND</span>
           </div>
         </div>
         <div class="row"><label><input type="checkbox" id="motor-enabled" /> Motor aktiv</label></div>
