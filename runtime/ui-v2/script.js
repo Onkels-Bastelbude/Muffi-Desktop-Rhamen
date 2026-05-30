@@ -598,11 +598,25 @@ $('#fw-restart-btn')?.addEventListener('click', async () => {
 
 let fwUpdatePollTimer = null;
 let fwUpdateOffset = 0;
+let fwEspUpdatePollTimer = null;
+let fwEspUpdateOffset = 0;
 
 function fwConsoleEl() { return $('#fw-console-output'); }
+function fwEspConsoleEl() { return $('#fw-esp-console-output'); }
 
 function fwAppendLine(line = '') {
   const out = fwConsoleEl();
+  if (!out) return;
+  const txt = String(line || '');
+  out.textContent += txt + '\n';
+  if (out.textContent.length > 120000) {
+    out.textContent = out.textContent.slice(-120000);
+  }
+  out.scrollTop = out.scrollHeight;
+}
+
+function fwEspAppendLine(line = '') {
+  const out = fwEspConsoleEl();
   if (!out) return;
   const txt = String(line || '');
   out.textContent += txt + '\n';
@@ -619,10 +633,23 @@ function fwSetRunningUi(running) {
   btn.textContent = running ? '⏳ Update läuft…' : '🧰 Server Update starten';
 }
 
+function fwSetEspRunningUi(running) {
+  const btn = $('#fw-esp-update-btn');
+  if (!btn) return;
+  btn.disabled = !!running;
+  btn.textContent = running ? '⏳ ESP Update läuft…' : '🚀 ESP OTA Update starten';
+}
+
 function fwResetConsole() {
   const out = fwConsoleEl();
   if (out) out.textContent = '';
   fwUpdateOffset = 0;
+}
+
+function fwResetEspConsole() {
+  const out = fwEspConsoleEl();
+  if (out) out.textContent = '';
+  fwEspUpdateOffset = 0;
 }
 
 async function fwPollUpdateStatus() {
@@ -653,6 +680,34 @@ async function fwPollUpdateStatus() {
   }
 }
 
+async function fwPollEspUpdateStatus() {
+  try {
+    const s = await jget(`/api/esp/update/status?offset=${fwEspUpdateOffset}`);
+    const lines = Array.isArray(s.lines) ? s.lines : [];
+    lines.forEach((ln) => fwEspAppendLine(ln));
+    fwEspUpdateOffset = Number(s.totalLines || fwEspUpdateOffset);
+
+    const phase = String(s.phase || 'idle');
+    if (phase === 'running') {
+      fwSetEspRunningUi(true);
+      fwEspUpdatePollTimer = setTimeout(fwPollEspUpdateStatus, 900);
+      return;
+    }
+
+    fwSetEspRunningUi(false);
+    if (phase === 'done') {
+      fwEspAppendLine('✅ ESP Update abgeschlossen.');
+      $('#fw-esp-msg').textContent = '✅ ESP Update abgeschlossen';
+    } else if (phase === 'error') {
+      fwEspAppendLine(`❌ ESP Update fehlgeschlagen (exit ${s.exitCode ?? 'unknown'})`);
+      $('#fw-esp-msg').textContent = `❌ ESP Update fehlgeschlagen (exit ${s.exitCode ?? 'unknown'})`;
+    }
+  } catch (e) {
+    fwEspAppendLine('❌ ESP-Status konnte nicht gelesen werden: ' + (e?.message || e));
+    fwSetEspRunningUi(false);
+  }
+}
+
 $('#fw-update-btn')?.addEventListener('click', async () => {
   try {
     clearTimeout(fwUpdatePollTimer);
@@ -669,6 +724,31 @@ $('#fw-update-btn')?.addEventListener('click', async () => {
     fwSetRunningUi(false);
     fwAppendLine('❌ Start fehlgeschlagen: ' + (e?.message || e));
     $('#fw-server-msg').textContent = '❌ Update konnte nicht gestartet werden: ' + (e?.message || e);
+  }
+});
+
+$('#fw-esp-update-btn')?.addEventListener('click', async () => {
+  try {
+    const host = ($('#wlan-esp-host')?.value || '').trim();
+    if (!host) {
+      $('#fw-esp-msg').textContent = '⚠️ Bitte zuerst ESP IP/Host im WLAN-Tab setzen.';
+      return;
+    }
+
+    clearTimeout(fwEspUpdatePollTimer);
+    fwResetEspConsole();
+    $('#fw-esp-console-wrap')?.classList.remove('hidden');
+    fwEspAppendLine(`🟠 Starte ESP OTA Update für ${host} …`);
+    $('#fw-esp-msg').textContent = 'ESP OTA Update gestartet…';
+    fwSetEspRunningUi(true);
+
+    const d = await jpost('/api/esp/update/start', { espHost: host });
+    fwEspAppendLine(d.message || 'ESP Update gestartet');
+    fwPollEspUpdateStatus();
+  } catch (e) {
+    fwSetEspRunningUi(false);
+    fwEspAppendLine('❌ Start fehlgeschlagen: ' + (e?.message || e));
+    $('#fw-esp-msg').textContent = '❌ ESP Update konnte nicht gestartet werden: ' + (e?.message || e);
   }
 });
 
@@ -712,6 +792,17 @@ $('#upload-form')?.addEventListener('submit', (e) => {
       const lines = Array.isArray(st.lines) ? st.lines : [];
       lines.forEach((ln) => fwAppendLine(ln));
       if (st.phase === 'running') fwPollUpdateStatus();
+    }
+  } catch (_) {}
+
+  try {
+    const stEsp = await jget('/api/esp/update/status');
+    fwEspUpdateOffset = Number(stEsp.totalLines || 0);
+    if (stEsp.phase && stEsp.phase !== 'idle') {
+      $('#fw-esp-console-wrap')?.classList.remove('hidden');
+      const lines = Array.isArray(stEsp.lines) ? stEsp.lines : [];
+      lines.forEach((ln) => fwEspAppendLine(ln));
+      if (stEsp.phase === 'running') fwPollEspUpdateStatus();
     }
   } catch (_) {}
 

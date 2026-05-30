@@ -77,6 +77,17 @@ UPDATE_STATE = {
     "scriptPath": "",
 }
 
+ESP_UPDATE_LOCK = threading.Lock()
+ESP_UPDATE_STATE = {
+    "phase": "idle",          # idle | running | done | error
+    "lines": [],
+    "exitCode": None,
+    "startedAt": 0.0,
+    "finishedAt": 0.0,
+    "scriptPath": "",
+    "espHost": "",
+}
+
 
 def safe_isdir(path):
     try:
@@ -982,6 +993,24 @@ def _resolve_update_script_path():
     return ""
 
 
+def _resolve_esp_update_script_path():
+    env_path = os.environ.get("MUFFI_ESP_UPDATE_SCRIPT", "").strip()
+    if env_path:
+        p = os.path.abspath(env_path)
+        if os.path.isfile(p):
+            return p
+
+    candidates = [
+        os.path.join(RUNTIME_DIR, "..", "install", "linux", "update-esp-ota.sh"),
+        os.path.join(RUNTIME_DIR, "..", "scripts", "update-esp-ota.sh"),
+    ]
+    for c in candidates:
+        p = os.path.abspath(c)
+        if os.path.isfile(p):
+            return p
+    return ""
+
+
 def start_update_job():
     script = _resolve_update_script_path()
     if not script:
@@ -1140,6 +1169,107 @@ def get_update_status(offset=0):
             "startedAt": float(UPDATE_STATE.get("startedAt") or 0.0),
             "finishedAt": float(UPDATE_STATE.get("finishedAt") or 0.0),
             "scriptPath": UPDATE_STATE.get("scriptPath", ""),
+            "offset": offset,
+            "totalLines": total,
+            "lines": lines[offset:],
+        }
+
+
+def _esp_update_append_line(line):
+    text = str(line or "").rstrip("\n")
+    if not text:
+        return
+    with ESP_UPDATE_LOCK:
+        ESP_UPDATE_STATE["lines"].append(text)
+        if len(ESP_UPDATE_STATE["lines"]) > 1500:
+            ESP_UPDATE_STATE["lines"] = ESP_UPDATE_STATE["lines"][-1500:]
+
+
+def start_esp_update_job(esp_host=""):
+    host = str(esp_host or "").strip()
+    if not host:
+        host = get_wlan_config_snapshot(mask_password=False).get("espHost", "")
+    host = str(host or "").strip()
+    if not host:
+        return {"ok": False, "error": "ESP Host fehlt"}
+
+    script = _resolve_esp_update_script_path()
+    if not script:
+        return {"ok": False, "error": "ESP-Update-Skript nicht gefunden (install/linux/update-esp-ota.sh)"}
+
+    with ESP_UPDATE_LOCK:
+        if ESP_UPDATE_STATE.get("phase") == "running":
+            return {"ok": False, "error": "ESP-Update läuft bereits"}
+        ESP_UPDATE_STATE.update({
+            "phase": "running",
+            "lines": [],
+            "exitCode": None,
+            "startedAt": time.time(),
+            "finishedAt": 0.0,
+            "scriptPath": script,
+            "espHost": host,
+        })
+
+    def _runner():
+        _esp_update_append_line(f"[info] starte OTA für {host}")
+        _esp_update_append_line(f"[info] script: {script}")
+        try:
+            install_dir = os.environ.get("MUFFI_INSTALL_DIR") or os.path.abspath(os.path.join(RUNTIME_DIR, ".."))
+            proc = subprocess.Popen(
+                ["bash", script],
+                cwd=os.path.dirname(script),
+                env={
+                    **os.environ,
+                    "INSTALL_DIR": install_dir,
+                    "ESP_HOST": host,
+                },
+                stdout=subprocess.PIPE,
+                stderr=subprocess.STDOUT,
+                text=True,
+                bufsize=1,
+            )
+
+            if proc.stdout is not None:
+                for line in proc.stdout:
+                    _esp_update_append_line(line)
+
+            proc.wait()
+            with ESP_UPDATE_LOCK:
+                ESP_UPDATE_STATE["exitCode"] = int(proc.returncode)
+                ESP_UPDATE_STATE["phase"] = "done" if proc.returncode == 0 else "error"
+                ESP_UPDATE_STATE["finishedAt"] = time.time()
+
+        except Exception as e:
+            _esp_update_append_line(f"[error] exception: {e}")
+            with ESP_UPDATE_LOCK:
+                ESP_UPDATE_STATE["exitCode"] = -1
+                ESP_UPDATE_STATE["phase"] = "error"
+                ESP_UPDATE_STATE["finishedAt"] = time.time()
+
+    threading.Thread(target=_runner, daemon=True).start()
+    return {"ok": True, "message": f"ESP-Update gestartet ({host})", "espHost": host}
+
+
+def get_esp_update_status(offset=0):
+    try:
+        offset = int(offset)
+    except Exception:
+        offset = 0
+    if offset < 0:
+        offset = 0
+
+    with ESP_UPDATE_LOCK:
+        lines = ESP_UPDATE_STATE.get("lines", [])
+        total = len(lines)
+        if offset > total:
+            offset = total
+        return {
+            "phase": ESP_UPDATE_STATE.get("phase", "idle"),
+            "exitCode": ESP_UPDATE_STATE.get("exitCode"),
+            "startedAt": float(ESP_UPDATE_STATE.get("startedAt") or 0.0),
+            "finishedAt": float(ESP_UPDATE_STATE.get("finishedAt") or 0.0),
+            "scriptPath": ESP_UPDATE_STATE.get("scriptPath", ""),
+            "espHost": ESP_UPDATE_STATE.get("espHost", ""),
             "offset": offset,
             "totalLines": total,
             "lines": lines[offset:],
@@ -1918,6 +2048,12 @@ class FrameHandler(BaseHTTPRequestHandler):
             self.send_json(get_update_status(offset=offset))
             return
 
+        if path == "api/esp/update/status":
+            qs_params = parse_qs(parsed.query or "")
+            offset = qs_params.get("offset", [0])[0]
+            self.send_json(get_esp_update_status(offset=offset))
+            return
+
         if path == "api/storage/auth":
             self.send_json(get_storage_auth_snapshot(mask_password=True))
             return
@@ -2155,6 +2291,24 @@ class FrameHandler(BaseHTTPRequestHandler):
                 self.send_json({"ok": False, "error": result.get("error", "Update konnte nicht gestartet werden")}, status=409)
                 return
             self.send_json({"ok": True, "message": result.get("message", "Update gestartet")})
+            return
+
+        if path == "api/esp/update/start":
+            length = int(self.headers.get("Content-Length", "0") or "0")
+            body = self.rfile.read(length) if length > 0 else b""
+
+            host = ""
+            try:
+                payload = json.loads(body.decode("utf-8") or "{}")
+                host = str((payload or {}).get("espHost") or "").strip()
+            except Exception:
+                pass
+
+            result = start_esp_update_job(host)
+            if not result.get("ok"):
+                self.send_json({"ok": False, "error": result.get("error", "ESP-Update konnte nicht gestartet werden")}, status=409)
+                return
+            self.send_json({"ok": True, "message": result.get("message", "ESP-Update gestartet"), "espHost": result.get("espHost", host)})
             return
 
         if path == "api/server/restart":
