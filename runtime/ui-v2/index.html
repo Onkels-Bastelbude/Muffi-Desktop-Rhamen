@@ -203,6 +203,9 @@
             <label>Passwort</label><input id="wlan-password" type="password" placeholder="WLAN Passwort" />
             <label>ESP IP/Host</label><input id="wlan-esp-host" type="text" placeholder="z. B. 192.168.50.77" />
             <label>Server URL</label><input id="wlan-server-base" type="text" placeholder="http://frame-server.local:8765" />
+            <label><input id="wlan-fallback-enabled" type="checkbox" /> Fallback-Server aktivieren</label>
+            <label>Fallback-Server URL</label><input id="wlan-fallback-base" type="text" placeholder="optional, z. B. http://192.168.x.x:8765" />
+            <label>Sync Timeout (ms)</label><input id="wlan-sync-timeout" type="number" min="600" max="5000" step="100" placeholder="1500" />
             <button type="submit" class="step-btn">💾 Speichern</button>
             <button type="button" id="wlan-apply-btn" class="step-btn">📡 Auf ESP anwenden</button>
             <button type="button" id="wlan-test-btn" class="step-btn">🛰️ ESP testen</button>

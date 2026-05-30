@@ -28,7 +28,6 @@
 #endif
 
 const char* SERVER_BASE_DEFAULT   = "http://frame-server.local:8765"; // Beispielwert, lokal anpassen
-const char* SERVER_BASE_FALLBACK  = "http://192.168.50.68:8765";
 #define DEFAULT_REFRESH_MS   (5 * 60 * 1000UL)
 #define BUTTON_PIN   9    // BOOT-Knopf
 #define SIDE_BUTTON_PIN 0  // Seitentaste (bei Bedarf anpassen)
@@ -129,6 +128,9 @@ Preferences prefs;
 String wifiSsid = "";
 String wifiPassword = "";
 String serverBase = SERVER_BASE_DEFAULT;
+bool wlanFallbackEnabled = false;
+String wlanFallbackBase = "";
+uint16_t wlanSyncTimeoutMs = 1500;
 String lastWlanSyncToken = "";
 unsigned long lastWlanSyncMs = 0;
 bool ledOn = true;
@@ -161,6 +163,14 @@ String normalizeServerBase(const String& input) {
   return out;
 }
 
+String normalizeOptionalServerBase(const String& input) {
+  String out = input;
+  out.trim();
+  if (!out.length()) return "";
+  while (out.endsWith("/")) out.remove(out.length() - 1);
+  return out;
+}
+
 String serverUrl(const String& path) {
   if (!path.length()) return serverBase;
   if (path.startsWith("/")) return serverBase + path;
@@ -171,12 +181,21 @@ void loadNetworkConfigFromPrefs() {
   wifiSsid = prefs.getString("wifiSsid", "");
   wifiPassword = prefs.getString("wifiPw", "");
   serverBase = normalizeServerBase(prefs.getString("srvBase", SERVER_BASE_DEFAULT));
+  wlanFallbackEnabled = prefs.getBool("srvFbOn", false);
+  wlanFallbackBase = normalizeOptionalServerBase(prefs.getString("srvFb", ""));
+  uint32_t t = prefs.getUInt("wlanTO", 1500);
+  if (t < 600) t = 600;
+  if (t > 5000) t = 5000;
+  wlanSyncTimeoutMs = (uint16_t)t;
 }
 
 void saveNetworkConfigToPrefs() {
   prefs.putString("wifiSsid", wifiSsid);
   prefs.putString("wifiPw", wifiPassword);
   prefs.putString("srvBase", serverBase);
+  prefs.putBool("srvFbOn", wlanFallbackEnabled);
+  prefs.putString("srvFb", wlanFallbackBase);
+  prefs.putUInt("wlanTO", wlanSyncTimeoutMs);
 }
 
 bool connectWiFiOnce(const String& ssid, const String& password, uint32_t timeoutMs, const char* statusLabel) {
@@ -194,22 +213,48 @@ bool connectWiFiOnce(const String& ssid, const String& password, uint32_t timeou
 bool fetchWlanConfigFromServer() {
   if (WiFi.status() != WL_CONNECTED) return false;
 
-  String endpoints[3];
+  const int MAX_ENDPOINTS = 4;
+  String endpoints[MAX_ENDPOINTS];
+  int endpointCount = 0;
+
   endpoints[0] = serverUrl("/api/wlan?source=esp");
-  endpoints[1] = String(SERVER_BASE_FALLBACK) + "/api/wlan?source=esp";
-  endpoints[2] = String(SERVER_BASE_DEFAULT) + "/api/wlan?source=esp";
+  endpointCount = 1;
+
+  if (wlanFallbackEnabled && wlanFallbackBase.length()) {
+    endpoints[endpointCount++] = wlanFallbackBase + "/api/wlan?source=esp";
+  }
+
+  String defaultEndpoint = String(SERVER_BASE_DEFAULT) + "/api/wlan?source=esp";
+  bool hasDefault = false;
+  for (int i = 0; i < endpointCount; i++) {
+    if (endpoints[i] == defaultEndpoint) {
+      hasDefault = true;
+      break;
+    }
+  }
+  if (!hasDefault && endpointCount < MAX_ENDPOINTS) {
+    endpoints[endpointCount++] = defaultEndpoint;
+  }
 
   String body = "";
   bool okFetch = false;
 
-  for (int i = 0; i < 3; i++) {
+  for (int i = 0; i < endpointCount; i++) {
     String url = endpoints[i];
     if (!url.length()) continue;
-    if (i > 0 && url == endpoints[0]) continue;
+
+    bool duplicate = false;
+    for (int j = 0; j < i; j++) {
+      if (endpoints[j] == url) {
+        duplicate = true;
+        break;
+      }
+    }
+    if (duplicate) continue;
 
     HTTPClient http;
     http.begin(url);
-    http.setTimeout(3500);
+    http.setTimeout(wlanSyncTimeoutMs);
     int code = http.GET();
     if (code == 200) {
       body = http.getString();
@@ -227,6 +272,11 @@ bool fetchWlanConfigFromServer() {
   String nextSsid = String((const char*)(doc["ssid"] | ""));
   String nextPw = String((const char*)(doc["password"] | ""));
   String nextBase = normalizeServerBase(String((const char*)(doc["serverBase"] | SERVER_BASE_DEFAULT)));
+  bool nextFallbackEnabled = bool(doc["fallbackEnabled"] | false);
+  String nextFallbackBase = normalizeOptionalServerBase(String((const char*)(doc["fallbackServerBase"] | "")));
+  uint32_t nextSyncTimeout = uint32_t(doc["syncTimeoutMs"] | wlanSyncTimeoutMs);
+  if (nextSyncTimeout < 600) nextSyncTimeout = 600;
+  if (nextSyncTimeout > 5000) nextSyncTimeout = 5000;
   String syncToken = String((const char*)(doc["syncToken"] | ""));
 
   bool changed = false;
@@ -241,6 +291,17 @@ bool fetchWlanConfigFromServer() {
       wifiPassword = nextPw;
       changed = true;
     }
+  }
+
+  if (nextFallbackEnabled != wlanFallbackEnabled || nextFallbackBase != wlanFallbackBase) {
+    wlanFallbackEnabled = nextFallbackEnabled;
+    wlanFallbackBase = nextFallbackBase;
+    changed = true;
+  }
+
+  if ((uint16_t)nextSyncTimeout != wlanSyncTimeoutMs) {
+    wlanSyncTimeoutMs = (uint16_t)nextSyncTimeout;
+    changed = true;
   }
 
   if (changed) {

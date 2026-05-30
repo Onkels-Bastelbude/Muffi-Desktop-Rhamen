@@ -370,18 +370,28 @@ async function wlanRefresh(){
     $('#wlan-password').value = d.password || '';
     $('#wlan-esp-host').value = d.espHost || '';
     $('#wlan-server-base').value = d.serverBase || 'http://frame-server.local:8765';
+    $('#wlan-fallback-enabled').checked = !!d.fallbackEnabled;
+    $('#wlan-fallback-base').value = d.fallbackServerBase || '';
+    $('#wlan-sync-timeout').value = Number(d.syncTimeoutMs || 1500);
   } catch (_) {}
+}
+
+function wlanPayloadFromForm() {
+  return {
+    ssid: $('#wlan-ssid').value,
+    password: $('#wlan-password').value,
+    espHost: $('#wlan-esp-host').value,
+    serverBase: $('#wlan-server-base').value,
+    fallbackEnabled: !!$('#wlan-fallback-enabled')?.checked,
+    fallbackServerBase: ($('#wlan-fallback-base')?.value || '').trim(),
+    syncTimeoutMs: Number($('#wlan-sync-timeout')?.value || 1500),
+  };
 }
 
 $('#wlan-form')?.addEventListener('submit', async (e) => {
   e.preventDefault();
   try {
-    await jpost('/api/wlan', {
-      ssid: $('#wlan-ssid').value,
-      password: $('#wlan-password').value,
-      espHost: $('#wlan-esp-host').value,
-      serverBase: $('#wlan-server-base').value,
-    });
+    await jpost('/api/wlan', wlanPayloadFromForm());
     $('#wlan-msg').textContent = '✅ WLAN-Konfig gespeichert';
   } catch (e2) {
     $('#wlan-msg').textContent = '❌ ' + e2.message;
@@ -392,12 +402,7 @@ $('#wlan-apply-btn')?.addEventListener('click', async () => {
   try {
     $('#wlan-msg').textContent = 'Speichere und sende an ESP…';
 
-    await jpost('/api/wlan', {
-      ssid: $('#wlan-ssid').value,
-      password: $('#wlan-password').value,
-      espHost: $('#wlan-esp-host').value,
-      serverBase: $('#wlan-server-base').value,
-    });
+    await jpost('/api/wlan', wlanPayloadFromForm());
 
     const host = ($('#wlan-esp-host')?.value || '').trim();
     if (host) {
@@ -650,10 +655,8 @@ $('#fw-esp-prepare-btn')?.addEventListener('click', async () => {
 
     $('#fw-esp-msg').textContent = 'Speichere Konfig und markiere ESP-Vorbereitung…';
     const payload = {
-      ssid: $('#wlan-ssid')?.value || '',
-      password: $('#wlan-password')?.value || '',
+      ...wlanPayloadFromForm(),
       espHost: host,
-      serverBase: $('#wlan-server-base')?.value || '',
     };
     const d = await jpost('/api/esp/prepare', payload);
     $('#fw-esp-msg').textContent = `✅ Vorbereitung gesetzt (Token ${d.syncToken || '-'}) · ESP zieht Daten beim nächsten WLAN-Sync.`;

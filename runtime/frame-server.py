@@ -648,11 +648,24 @@ def sanitize_wlan_config(raw):
     password = str(raw.get("password", "") or "")[:128]
     esp_host = str(raw.get("espHost", "") or "").strip()[:128]
     server_base = str(raw.get("serverBase", "http://frame-server.local:8765") or "").strip()[:256]
+    fallback_enabled = bool(raw.get("fallbackEnabled", False))
+    fallback_server_base = str(raw.get("fallbackServerBase", "") or "").strip()[:256]
+    try:
+        sync_timeout_ms = int(raw.get("syncTimeoutMs", 1500))
+    except Exception:
+        sync_timeout_ms = 1500
+    if sync_timeout_ms < 600:
+        sync_timeout_ms = 600
+    if sync_timeout_ms > 5000:
+        sync_timeout_ms = 5000
     return {
         "ssid": ssid,
         "password": password,
         "espHost": esp_host,
         "serverBase": server_base,
+        "fallbackEnabled": fallback_enabled,
+        "fallbackServerBase": fallback_server_base,
+        "syncTimeoutMs": sync_timeout_ms,
         "updatedAt": float(raw.get("updatedAt") or 0.0),
     }
 
@@ -813,6 +826,20 @@ def update_wlan_config(patch: dict):
         current["espHost"] = str(patch.get("espHost") or "").strip()[:128]
     if "serverBase" in patch:
         current["serverBase"] = str(patch.get("serverBase") or "").strip()[:256]
+    if "fallbackEnabled" in patch:
+        current["fallbackEnabled"] = bool(patch.get("fallbackEnabled"))
+    if "fallbackServerBase" in patch:
+        current["fallbackServerBase"] = str(patch.get("fallbackServerBase") or "").strip()[:256]
+    if "syncTimeoutMs" in patch:
+        try:
+            tm = int(patch.get("syncTimeoutMs"))
+        except Exception:
+            tm = current.get("syncTimeoutMs", 1500)
+        if tm < 600:
+            tm = 600
+        if tm > 5000:
+            tm = 5000
+        current["syncTimeoutMs"] = tm
     current["updatedAt"] = time.time()
     SERVER_CONFIG["wlan"] = current
     save_config(SERVER_CONFIG)
