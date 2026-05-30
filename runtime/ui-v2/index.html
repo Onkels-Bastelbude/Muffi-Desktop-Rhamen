@@ -188,12 +188,24 @@
           <pre id="fw-console-output" class="fw-console-output"></pre>
         </div>
 
-        <h3 style="margin-top:14px;">ESP</h3>
+        <h3 style="margin-top:14px;">ESP – Erst-Flash (USB)</h3>
         <div class="row">
-          <button type="button" id="fw-esp-prepare-btn">📡 ESP vorbereiten (Config senden)</button>
-          <button type="button" id="fw-ota-btn">OTA prüfen</button>
-          <button type="button" id="fw-esp-update-btn">🚀 ESP OTA Update starten</button>
-          <button type="button" id="fw-usb-btn">USB-Flash Hinweise</button>
+          <button type="button" id="fw-esp-usb-detect-btn">1) USB-Port erkennen</button>
+          <button type="button" id="fw-esp-usb-boot-btn">2) Boot-Modus prüfen</button>
+          <button type="button" id="fw-esp-usb-flash-btn">3) Erst-Flash starten</button>
+          <button type="button" id="fw-usb-btn">USB-Hilfe</button>
+        </div>
+        <div id="fw-esp-usb-msg" class="msg"></div>
+        <div id="fw-esp-usb-console-wrap" class="fw-console-wrap hidden">
+          <div class="fw-console-head">ESP USB Flash Console</div>
+          <pre id="fw-esp-usb-console-output" class="fw-console-output"></pre>
+        </div>
+
+        <h3 style="margin-top:14px;">ESP – On-the-fly Update (WLAN/OTA)</h3>
+        <div class="row">
+          <button type="button" id="fw-ota-btn">A) ESP erreichbar prüfen</button>
+          <button type="button" id="fw-esp-prepare-btn">B) Config an ESP senden</button>
+          <button type="button" id="fw-esp-update-btn">C) OTA Update starten</button>
         </div>
         <div id="fw-esp-msg" class="msg"></div>
         <div id="fw-esp-sync-status" class="msg"></div>

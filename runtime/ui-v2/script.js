@@ -573,18 +573,68 @@ $('#fw-ota-btn')?.addEventListener('click', async () => {
   }
 });
 
+$('#fw-esp-usb-detect-btn')?.addEventListener('click', async () => {
+  await fwDetectUsbPort();
+});
+
+$('#fw-esp-usb-boot-btn')?.addEventListener('click', async () => {
+  try {
+    if (!fwEspUsbPort) await fwDetectUsbPort();
+    if (!fwEspUsbPort) {
+      $('#fw-esp-usb-msg').textContent = '⚠️ Kein Port gewählt. Bitte zuerst USB-Port erkennen.';
+      return;
+    }
+    $('#fw-esp-usb-msg').textContent = `Prüfe Boot-Modus auf ${fwEspUsbPort} …`;
+    const d = await jpost('/api/esp/usb/check-boot', { port: fwEspUsbPort });
+    $('#fw-esp-usb-msg').textContent = `✅ ${d.message || 'Boot-Modus ok'} (${fwEspUsbPort})`;
+  } catch (e) {
+    $('#fw-esp-usb-msg').textContent = '❌ Boot-Modus nicht bereit. BOOT halten + RESET tippen, dann erneut prüfen.';
+  }
+});
+
+$('#fw-esp-usb-flash-btn')?.addEventListener('click', async () => {
+  try {
+    if (!fwEspUsbPort) await fwDetectUsbPort();
+    if (!fwEspUsbPort) {
+      $('#fw-esp-usb-msg').textContent = '⚠️ Kein Port gewählt. Bitte zuerst USB-Port erkennen.';
+      return;
+    }
+
+    clearTimeout(fwEspUsbPollTimer);
+    fwResetEspUsbConsole();
+    $('#fw-esp-usb-console-wrap')?.classList.remove('hidden');
+    fwEspUsbAppendLine(`🟠 Starte Erst-Flash auf ${fwEspUsbPort} …`);
+    $('#fw-esp-usb-msg').textContent = `Erst-Flash gestartet (${fwEspUsbPort}) …`;
+    fwSetEspUsbRunningUi(true);
+
+    const d = await jpost('/api/esp/usb/flash/start', { port: fwEspUsbPort });
+    fwEspUsbAppendLine(d.message || 'USB-Flash gestartet');
+    fwPollEspUsbFlashStatus();
+  } catch (e) {
+    fwSetEspUsbRunningUi(false);
+    fwEspUsbAppendLine('❌ Start fehlgeschlagen: ' + (e?.message || e));
+    $('#fw-esp-usb-msg').textContent = '❌ Erst-Flash konnte nicht gestartet werden: ' + (e?.message || e);
+  }
+});
+
 $('#fw-usb-btn')?.addEventListener('click', () => {
-  $('#fw-esp-msg').textContent = 'ℹ️ USB-Flash: ESP per Datenkabel verbinden, BOOT halten + RESET tippen, dann Upload starten.';
+  $('#fw-esp-usb-msg').textContent = 'ℹ️ Erst-Flash: USB verbinden → BOOT halten + RESET tippen → Boot prüfen → Erst-Flash starten.';
 });
 
 async function refreshEspSyncStatus() {
   try {
-    const s = await jget('/api/esp/sync-status');
+    const [s, ota] = await Promise.all([
+      jget('/api/esp/sync-status'),
+      jget('/api/esp/update/status').catch(() => ({ phase: 'idle', exitCode: null })),
+    ]);
     const host = s.espHost || '-';
     const ip = s.lastAckIp || '-';
     const age = (s.secondsSinceAck == null) ? 'nie' : `${s.secondsSinceAck}s`;
     const state = s.isSynced ? '✅ ESP hat Web-UI-Daten empfangen' : '⏳ Warte auf ESP-Sync';
-    $('#fw-esp-sync-status').textContent = `${state} · ESP: ${host} · Letzter Pull: ${age} · Quelle: ${ip}`;
+    const otaState = (ota.phase === 'done')
+      ? 'OTA zuletzt erfolgreich'
+      : (ota.phase === 'error' ? `OTA Fehler (exit ${ota.exitCode ?? 'unknown'})` : 'OTA noch nicht gelaufen');
+    $('#fw-esp-sync-status').textContent = `${state} · ESP: ${host} · Letzter Pull: ${age} · Quelle: ${ip} · ${otaState}`;
   } catch (e) {
     $('#fw-esp-sync-status').textContent = '⚠️ ESP Sync-Status nicht verfügbar: ' + (e?.message || e);
   }
@@ -636,9 +686,13 @@ let fwUpdatePollTimer = null;
 let fwUpdateOffset = 0;
 let fwEspUpdatePollTimer = null;
 let fwEspUpdateOffset = 0;
+let fwEspUsbPollTimer = null;
+let fwEspUsbOffset = 0;
+let fwEspUsbPort = '';
 
 function fwConsoleEl() { return $('#fw-console-output'); }
 function fwEspConsoleEl() { return $('#fw-esp-console-output'); }
+function fwEspUsbConsoleEl() { return $('#fw-esp-usb-console-output'); }
 
 function fwAppendLine(line = '') {
   const out = fwConsoleEl();
@@ -662,6 +716,17 @@ function fwEspAppendLine(line = '') {
   out.scrollTop = out.scrollHeight;
 }
 
+function fwEspUsbAppendLine(line = '') {
+  const out = fwEspUsbConsoleEl();
+  if (!out) return;
+  const txt = String(line || '');
+  out.textContent += txt + '\n';
+  if (out.textContent.length > 120000) {
+    out.textContent = out.textContent.slice(-120000);
+  }
+  out.scrollTop = out.scrollHeight;
+}
+
 function fwSetRunningUi(running) {
   const btn = $('#fw-update-btn');
   if (!btn) return;
@@ -676,6 +741,13 @@ function fwSetEspRunningUi(running) {
   btn.textContent = running ? '⏳ ESP Update läuft…' : '🚀 ESP OTA Update starten';
 }
 
+function fwSetEspUsbRunningUi(running) {
+  const btn = $('#fw-esp-usb-flash-btn');
+  if (!btn) return;
+  btn.disabled = !!running;
+  btn.textContent = running ? '⏳ USB Flash läuft…' : '3) Erst-Flash starten';
+}
+
 function fwResetConsole() {
   const out = fwConsoleEl();
   if (out) out.textContent = '';
@@ -686,6 +758,12 @@ function fwResetEspConsole() {
   const out = fwEspConsoleEl();
   if (out) out.textContent = '';
   fwEspUpdateOffset = 0;
+}
+
+function fwResetEspUsbConsole() {
+  const out = fwEspUsbConsoleEl();
+  if (out) out.textContent = '';
+  fwEspUsbOffset = 0;
 }
 
 async function fwPollUpdateStatus() {
@@ -741,6 +819,49 @@ async function fwPollEspUpdateStatus() {
   } catch (e) {
     fwEspAppendLine('❌ ESP-Status konnte nicht gelesen werden: ' + (e?.message || e));
     fwSetEspRunningUi(false);
+  }
+}
+
+async function fwDetectUsbPort() {
+  try {
+    const d = await jget('/api/esp/usb/status');
+    fwEspUsbPort = d.selectedPort || '';
+    const count = Array.isArray(d.ports) ? d.ports.length : 0;
+    if (!fwEspUsbPort) {
+      $('#fw-esp-usb-msg').textContent = `⚠️ Kein ESP-Port erkannt (gefunden: ${count}).`; 
+      return;
+    }
+    $('#fw-esp-usb-msg').textContent = `✅ Port erkannt: ${fwEspUsbPort} (Ports gesamt: ${count})`;
+  } catch (e) {
+    $('#fw-esp-usb-msg').textContent = '❌ Port-Erkennung fehlgeschlagen: ' + (e?.message || e);
+  }
+}
+
+async function fwPollEspUsbFlashStatus() {
+  try {
+    const s = await jget(`/api/esp/usb/flash/status?offset=${fwEspUsbOffset}`);
+    const lines = Array.isArray(s.lines) ? s.lines : [];
+    lines.forEach((ln) => fwEspUsbAppendLine(ln));
+    fwEspUsbOffset = Number(s.totalLines || fwEspUsbOffset);
+
+    const phase = String(s.phase || 'idle');
+    if (phase === 'running') {
+      fwSetEspUsbRunningUi(true);
+      fwEspUsbPollTimer = setTimeout(fwPollEspUsbFlashStatus, 900);
+      return;
+    }
+
+    fwSetEspUsbRunningUi(false);
+    if (phase === 'done') {
+      fwEspUsbAppendLine('✅ USB-Flash abgeschlossen.');
+      $('#fw-esp-usb-msg').textContent = '✅ Erst-Flash abgeschlossen. Du kannst jetzt OTA nutzen.';
+    } else if (phase === 'error') {
+      fwEspUsbAppendLine(`❌ USB-Flash fehlgeschlagen (exit ${s.exitCode ?? 'unknown'})`);
+      $('#fw-esp-usb-msg').textContent = `❌ USB-Flash fehlgeschlagen (exit ${s.exitCode ?? 'unknown'})`;
+    }
+  } catch (e) {
+    fwEspUsbAppendLine('❌ USB-Flash-Status konnte nicht gelesen werden: ' + (e?.message || e));
+    fwSetEspUsbRunningUi(false);
   }
 }
 
@@ -840,6 +961,18 @@ $('#upload-form')?.addEventListener('submit', (e) => {
       const lines = Array.isArray(stEsp.lines) ? stEsp.lines : [];
       lines.forEach((ln) => fwEspAppendLine(ln));
       if (stEsp.phase === 'running') fwPollEspUpdateStatus();
+    }
+  } catch (_) {}
+
+  try {
+    await fwDetectUsbPort();
+    const stUsb = await jget('/api/esp/usb/flash/status');
+    fwEspUsbOffset = Number(stUsb.totalLines || 0);
+    if (stUsb.phase && stUsb.phase !== 'idle') {
+      $('#fw-esp-usb-console-wrap')?.classList.remove('hidden');
+      const lines = Array.isArray(stUsb.lines) ? stUsb.lines : [];
+      lines.forEach((ln) => fwEspUsbAppendLine(ln));
+      if (stUsb.phase === 'running') fwPollEspUsbFlashStatus();
     }
   } catch (_) {}
 

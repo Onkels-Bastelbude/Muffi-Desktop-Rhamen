@@ -88,6 +88,17 @@ ESP_UPDATE_STATE = {
     "espHost": "",
 }
 
+ESP_USB_FLASH_LOCK = threading.Lock()
+ESP_USB_FLASH_STATE = {
+    "phase": "idle",          # idle | running | done | error
+    "lines": [],
+    "exitCode": None,
+    "startedAt": 0.0,
+    "finishedAt": 0.0,
+    "scriptPath": "",
+    "port": "",
+}
+
 
 def safe_isdir(path):
     try:
@@ -1341,6 +1352,207 @@ def get_esp_update_status(offset=0):
         }
 
 
+def _resolve_usb_flash_script_path():
+    env_path = os.environ.get("MUFFI_ESP_USB_FLASH_SCRIPT", "").strip()
+    if env_path:
+        p = os.path.abspath(env_path)
+        if os.path.isfile(p):
+            return p
+
+    candidates = [
+        os.path.join(RUNTIME_DIR, "..", "install", "linux", "flash-esp-usb.sh"),
+        os.path.join(RUNTIME_DIR, "..", "scripts", "flash-esp-usb.sh"),
+    ]
+    for c in candidates:
+        p = os.path.abspath(c)
+        if os.path.isfile(p):
+            return p
+    return ""
+
+
+def _list_arduino_ports():
+    try:
+        r = subprocess.run(
+            ["arduino-cli", "board", "list", "--json"],
+            capture_output=True,
+            text=True,
+            timeout=8,
+            check=False,
+        )
+        if r.returncode != 0:
+            return []
+        data = json.loads(r.stdout or "{}")
+        out = []
+        for item in (data.get("detected_ports") or []):
+            port = item.get("port") or {}
+            address = str(port.get("address") or "").strip()
+            if not address:
+                continue
+            label = str(port.get("label") or "").strip()
+            proto = str(port.get("protocol") or "").strip()
+            boards = item.get("matching_boards") or []
+            names = [str(b.get("name") or "").strip() for b in boards if isinstance(b, dict)]
+            fqbn = ""
+            for b in boards:
+                if isinstance(b, dict) and b.get("fqbn"):
+                    fqbn = str(b.get("fqbn"))
+                    break
+            out.append({
+                "address": address,
+                "label": label,
+                "protocol": proto,
+                "boards": names,
+                "fqbn": fqbn,
+            })
+        return out
+    except Exception:
+        return []
+
+
+def get_esp_usb_status():
+    ports = _list_arduino_ports()
+    selected = ""
+    for p in ports:
+        hay = " ".join([p.get("fqbn", "")] + (p.get("boards") or [])).lower()
+        if "esp32c6" in hay or "esp32-c6" in hay:
+            selected = p.get("address", "")
+            break
+    if not selected and ports:
+        selected = ports[0].get("address", "")
+
+    return {
+        "ports": ports,
+        "selectedPort": selected,
+        "hasPorts": bool(ports),
+    }
+
+
+def check_esp_boot_mode(port: str):
+    p = str(port or "").strip()
+    if not p:
+        return {"ok": False, "error": "Port fehlt"}
+
+    esptool_bin = ""
+    try:
+        cand = subprocess.run(
+            ["sh", "-lc", "ls -1d $HOME/.arduino15/packages/esp32/tools/esptool_py/*/esptool 2>/dev/null | sort -V | tail -n 1"],
+            capture_output=True,
+            text=True,
+            timeout=3,
+            check=False,
+        )
+        esptool_bin = (cand.stdout or "").strip()
+    except Exception:
+        esptool_bin = ""
+
+    cmd = [esptool_bin, "--chip", "esp32c6", "--port", p, "chip_id"] if esptool_bin else ["python3", "-m", "esptool", "--chip", "esp32c6", "--port", p, "chip_id"]
+    try:
+        r = subprocess.run(cmd, capture_output=True, text=True, timeout=12, check=False)
+        combined = ((r.stdout or "") + "\n" + (r.stderr or "")).strip()
+        if r.returncode == 0:
+            return {"ok": True, "message": "ESP antwortet auf dem Port (Boot/Auto-Reset ok)", "details": combined[-1200:]}
+        return {"ok": False, "error": "Kein Bootloader-Zugriff", "details": combined[-1200:]}
+    except Exception as e:
+        return {"ok": False, "error": str(e)}
+
+
+def _esp_usb_flash_append_line(line):
+    text = str(line or "").rstrip("\n")
+    if not text:
+        return
+    with ESP_USB_FLASH_LOCK:
+        ESP_USB_FLASH_STATE["lines"].append(text)
+        if len(ESP_USB_FLASH_STATE["lines"]) > 1500:
+            ESP_USB_FLASH_STATE["lines"] = ESP_USB_FLASH_STATE["lines"][-1500:]
+
+
+def start_esp_usb_flash_job(port: str):
+    p = str(port or "").strip()
+    if not p:
+        return {"ok": False, "error": "Port fehlt"}
+
+    script = _resolve_usb_flash_script_path()
+    if not script:
+        return {"ok": False, "error": "USB-Flash-Skript nicht gefunden (install/linux/flash-esp-usb.sh)"}
+
+    with ESP_USB_FLASH_LOCK:
+        if ESP_USB_FLASH_STATE.get("phase") == "running":
+            return {"ok": False, "error": "USB-Flash läuft bereits"}
+        ESP_USB_FLASH_STATE.update({
+            "phase": "running",
+            "lines": [],
+            "exitCode": None,
+            "startedAt": time.time(),
+            "finishedAt": 0.0,
+            "scriptPath": script,
+            "port": p,
+        })
+
+    def _runner():
+        _esp_usb_flash_append_line(f"[info] starte USB-Flash auf {p}")
+        _esp_usb_flash_append_line(f"[info] script: {script}")
+        try:
+            install_dir = os.environ.get("MUFFI_INSTALL_DIR") or os.path.abspath(os.path.join(RUNTIME_DIR, ".."))
+            proc = subprocess.Popen(
+                ["bash", script],
+                cwd=os.path.dirname(script),
+                env={
+                    **os.environ,
+                    "INSTALL_DIR": install_dir,
+                    "ESP_PORT": p,
+                },
+                stdout=subprocess.PIPE,
+                stderr=subprocess.STDOUT,
+                text=True,
+                bufsize=1,
+            )
+
+            if proc.stdout is not None:
+                for line in proc.stdout:
+                    _esp_usb_flash_append_line(line)
+
+            proc.wait()
+            with ESP_USB_FLASH_LOCK:
+                ESP_USB_FLASH_STATE["exitCode"] = int(proc.returncode)
+                ESP_USB_FLASH_STATE["phase"] = "done" if proc.returncode == 0 else "error"
+                ESP_USB_FLASH_STATE["finishedAt"] = time.time()
+        except Exception as e:
+            _esp_usb_flash_append_line(f"[error] exception: {e}")
+            with ESP_USB_FLASH_LOCK:
+                ESP_USB_FLASH_STATE["exitCode"] = -1
+                ESP_USB_FLASH_STATE["phase"] = "error"
+                ESP_USB_FLASH_STATE["finishedAt"] = time.time()
+
+    threading.Thread(target=_runner, daemon=True).start()
+    return {"ok": True, "message": f"USB-Flash gestartet ({p})", "port": p}
+
+
+def get_esp_usb_flash_status(offset=0):
+    try:
+        offset = int(offset)
+    except Exception:
+        offset = 0
+    if offset < 0:
+        offset = 0
+
+    with ESP_USB_FLASH_LOCK:
+        lines = ESP_USB_FLASH_STATE.get("lines", [])
+        total = len(lines)
+        if offset > total:
+            offset = total
+        return {
+            "phase": ESP_USB_FLASH_STATE.get("phase", "idle"),
+            "exitCode": ESP_USB_FLASH_STATE.get("exitCode"),
+            "startedAt": float(ESP_USB_FLASH_STATE.get("startedAt") or 0.0),
+            "finishedAt": float(ESP_USB_FLASH_STATE.get("finishedAt") or 0.0),
+            "scriptPath": ESP_USB_FLASH_STATE.get("scriptPath", ""),
+            "port": ESP_USB_FLASH_STATE.get("port", ""),
+            "offset": offset,
+            "totalLines": total,
+            "lines": lines[offset:],
+        }
+
+
 def trigger_server_restart(delay_seconds=1.0):
     try:
         delay = float(delay_seconds)
@@ -2119,6 +2331,16 @@ class FrameHandler(BaseHTTPRequestHandler):
             self.send_json(get_esp_update_status(offset=offset))
             return
 
+        if path == "api/esp/usb/status":
+            self.send_json(get_esp_usb_status())
+            return
+
+        if path == "api/esp/usb/flash/status":
+            qs_params = parse_qs(parsed.query or "")
+            offset = qs_params.get("offset", [0])[0]
+            self.send_json(get_esp_usb_flash_status(offset=offset))
+            return
+
         if path == "api/esp/sync-status":
             self.send_json(get_esp_sync_status())
             return
@@ -2401,6 +2623,40 @@ class FrameHandler(BaseHTTPRequestHandler):
                 "syncToken": sync.get("desiredToken", ""),
                 **status_payload,
             })
+            return
+
+        if path == "api/esp/usb/check-boot":
+            length = int(self.headers.get("Content-Length", "0") or "0")
+            body = self.rfile.read(length) if length > 0 else b""
+            port = ""
+            try:
+                payload = json.loads(body.decode("utf-8") or "{}")
+                port = str((payload or {}).get("port") or "").strip()
+            except Exception:
+                pass
+
+            result = check_esp_boot_mode(port)
+            if result.get("ok"):
+                self.send_json({"ok": True, "message": result.get("message", "Boot-Modus ok"), "details": result.get("details", ""), "port": port})
+            else:
+                self.send_json({"ok": False, "error": result.get("error", "Boot-Check fehlgeschlagen"), "details": result.get("details", ""), "port": port}, status=502)
+            return
+
+        if path == "api/esp/usb/flash/start":
+            length = int(self.headers.get("Content-Length", "0") or "0")
+            body = self.rfile.read(length) if length > 0 else b""
+            port = ""
+            try:
+                payload = json.loads(body.decode("utf-8") or "{}")
+                port = str((payload or {}).get("port") or "").strip()
+            except Exception:
+                pass
+
+            result = start_esp_usb_flash_job(port)
+            if not result.get("ok"):
+                self.send_json({"ok": False, "error": result.get("error", "USB-Flash konnte nicht gestartet werden")}, status=409)
+                return
+            self.send_json({"ok": True, "message": result.get("message", "USB-Flash gestartet"), "port": result.get("port", port)})
             return
 
         if path == "api/esp/update/start":
