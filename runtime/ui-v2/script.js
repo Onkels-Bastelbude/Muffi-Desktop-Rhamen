@@ -390,6 +390,21 @@ function updateMotorAngleLabels() {
   $('#motor-landscape-val').textContent = String(q);
 }
 
+function clampMotorPulse(v, fallback) {
+  const n = Number(v);
+  if (!Number.isFinite(n)) return fallback;
+  return Math.max(500, Math.min(8000, Math.round(n)));
+}
+
+function nudgeMotorPulse(inputId, delta) {
+  const el = document.getElementById(inputId);
+  if (!el) return;
+  const cur = clampMotorPulse(el.value, inputId === 'motor-portrait' ? 1638 : 4915);
+  el.value = clampMotorPulse(cur + delta, cur);
+  motorAnglesDirty = true;
+  updateMotorAngleLabels();
+}
+
 function angleSaveMessage() {
   const p = Number($('#motor-portrait')?.value || 1638);
   const q = Number($('#motor-landscape')?.value || 4915);
@@ -455,6 +470,10 @@ $('#motor-on-btn')?.addEventListener('click', () => motorSave({ enabled: true },
 $('#motor-off-btn')?.addEventListener('click', () => motorSave({ enabled: false }, '✅ Motor gespeichert (AUS)'));
 $('#motor-portrait')?.addEventListener('input', () => { motorAnglesDirty = true; updateMotorAngleLabels(); });
 $('#motor-landscape')?.addEventListener('input', () => { motorAnglesDirty = true; updateMotorAngleLabels(); });
+$('#motor-portrait-dec')?.addEventListener('click', () => nudgeMotorPulse('motor-portrait', -1));
+$('#motor-portrait-inc')?.addEventListener('click', () => nudgeMotorPulse('motor-portrait', +1));
+$('#motor-landscape-dec')?.addEventListener('click', () => nudgeMotorPulse('motor-landscape', -1));
+$('#motor-landscape-inc')?.addEventListener('click', () => nudgeMotorPulse('motor-landscape', +1));
 $('#motor-speed-step')?.addEventListener('input', () => updateMotorSpeedLabel($('#motor-speed-step')?.value || 5));
 $('#motor-speed-step')?.addEventListener('change', () => motorSave({ moveDelayMs: motorStepToDelayMs($('#motor-speed-step')?.value || 5), enabled: motorEnabledState }, '✅ Speed gespeichert · aktiv beim nächsten Bildwechsel'));
 $('#motor-save-btn')?.addEventListener('click', () => motorSave(getMotorFormPayload(), angleSaveMessage()));

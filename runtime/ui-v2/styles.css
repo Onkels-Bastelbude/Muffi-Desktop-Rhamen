@@ -91,3 +91,5 @@ a{color:#ffd3a5}.topbar{display:flex;justify-content:space-between;gap:10px;alig
 .motor-toggle-btn{border:1px solid #8e6642;background:linear-gradient(180deg,#5a3926,#3b2619);box-shadow:inset 0 0 0 1px #2c1c12,inset 0 0 14px #ffb15a33,0 0 10px #0008;font-weight:700;min-width:110px}
 .motor-toggle-btn.active{border-color:#ffd082;background:linear-gradient(180deg,#ffb15a,#b96b2f);color:#2a1b11;box-shadow:inset 0 0 0 1px #5a341d,0 0 16px #ff9f3a88}
 .motor-status-block .msg{margin-top:0;color:#f2d3a0;font-weight:700;font-size:14px;min-height:1.2em}
+.motor-nudge-btn{padding:6px 9px;border:1px solid #8e6642;background:linear-gradient(180deg,#5a3926,#3b2619);box-shadow:inset 0 0 0 1px #2c1c12,inset 0 0 10px #ffb15a33,0 0 8px #0007;min-width:38px}
+.motor-nudge-btn:hover{border-color:#d29356;box-shadow:inset 0 0 0 1px #3a2518,inset 0 0 14px #ffb15a55,0 0 10px #ff9f3a55}
