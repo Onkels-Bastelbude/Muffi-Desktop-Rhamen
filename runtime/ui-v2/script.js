@@ -363,13 +363,46 @@ $('#led-next-color')?.addEventListener('click', async ()=>{ try { const d = awai
 
 async function ledRefresh(){ try { const d = await jget('/api/led'); $('#led-on').checked=!!d.on; $('#led-brightness').value=Number(d.brightness||0); $('#led-brightness-val').textContent=String(Number(d.brightness||0)); $('#led-color').value=d.color||'#FFD6A0'; $('#led-order').value=d.ledOrder||'GRB'; } catch(_){} }
 
+const MOTOR_SPEED_MIN_DELAY_MS = 150;
+const MOTOR_SPEED_MAX_DELAY_MS = 1200;
+
+function motorStepToDelayMs(step) {
+  const s = Math.max(1, Math.min(10, Math.round(Number(step) || 5)));
+  const ratio = (s - 1) / 9;
+  return Math.round(MOTOR_SPEED_MAX_DELAY_MS - ratio * (MOTOR_SPEED_MAX_DELAY_MS - MOTOR_SPEED_MIN_DELAY_MS));
+}
+
+function motorDelayMsToStep(delayMs) {
+  const d = Math.max(MOTOR_SPEED_MIN_DELAY_MS, Math.min(MOTOR_SPEED_MAX_DELAY_MS, Number(delayMs) || 600));
+  const ratio = (MOTOR_SPEED_MAX_DELAY_MS - d) / (MOTOR_SPEED_MAX_DELAY_MS - MOTOR_SPEED_MIN_DELAY_MS);
+  return Math.max(1, Math.min(10, Math.round(1 + ratio * 9)));
+}
+
+function updateMotorStepLabel(step) {
+  const s = Math.max(1, Math.min(10, Math.round(Number(step) || 5)));
+  const delay = motorStepToDelayMs(s);
+  $('#motor-speed-step-val').textContent = `${s} (${delay}ms)`;
+}
+
+function motorPayloadBase() {
+  const step = Number($('#motor-speed-step')?.value || 5);
+  return {
+    enabled: !!$('#motor-enabled')?.checked,
+    portraitPulse: Number($('#motor-portrait')?.value || 1638),
+    landscapePulse: Number($('#motor-landscape')?.value || 4915),
+    moveDelayMs: motorStepToDelayMs(step),
+  };
+}
+
 async function motorSave(patch){
   try {
     const d = await jpost('/api/motor', { ...(patch || {}), source:'web' });
     $('#motor-enabled').checked = !!d.enabled;
     $('#motor-portrait').value = Number(d.portraitPulse || 1638);
     $('#motor-landscape').value = Number(d.landscapePulse || 4915);
-    $('#motor-delay').value = Number(d.moveDelayMs || 600);
+    const step = motorDelayMsToStep(Number(d.moveDelayMs || 600));
+    $('#motor-speed-step').value = step;
+    updateMotorStepLabel(step);
     $('#motor-portrait-val').textContent = String(Number(d.portraitPulse || 1638));
     $('#motor-landscape-val').textContent = String(Number(d.landscapePulse || 4915));
     $('#motor-msg').textContent = '✅ Motor gespeichert';
@@ -384,7 +417,9 @@ async function motorRefresh(){
     $('#motor-enabled').checked = !!d.enabled;
     $('#motor-portrait').value = Number(d.portraitPulse || 1638);
     $('#motor-landscape').value = Number(d.landscapePulse || 4915);
-    $('#motor-delay').value = Number(d.moveDelayMs || 600);
+    const step = motorDelayMsToStep(Number(d.moveDelayMs || 600));
+    $('#motor-speed-step').value = step;
+    updateMotorStepLabel(step);
     $('#motor-portrait-val').textContent = String(Number(d.portraitPulse || 1638));
     $('#motor-landscape-val').textContent = String(Number(d.landscapePulse || 4915));
   } catch (_) {}
@@ -393,24 +428,15 @@ async function motorRefresh(){
 $('#motor-enabled')?.addEventListener('change', () => motorSave({ enabled: !!$('#motor-enabled').checked }));
 $('#motor-portrait')?.addEventListener('input', () => { $('#motor-portrait-val').textContent = String(Number($('#motor-portrait').value || 1638)); });
 $('#motor-landscape')?.addEventListener('input', () => { $('#motor-landscape-val').textContent = String(Number($('#motor-landscape').value || 4915)); });
-$('#motor-save-btn')?.addEventListener('click', () => motorSave({
-  enabled: !!$('#motor-enabled')?.checked,
-  portraitPulse: Number($('#motor-portrait')?.value || 1638),
-  landscapePulse: Number($('#motor-landscape')?.value || 4915),
-  moveDelayMs: Number($('#motor-delay')?.value || 600),
-}));
+$('#motor-speed-step')?.addEventListener('input', () => { updateMotorStepLabel($('#motor-speed-step')?.value || 5); });
+$('#motor-speed-step')?.addEventListener('change', () => { motorSave({ moveDelayMs: motorStepToDelayMs($('#motor-speed-step')?.value || 5) }); });
+$('#motor-save-btn')?.addEventListener('click', () => motorSave(motorPayloadBase()));
 $('#motor-test-portrait-btn')?.addEventListener('click', () => motorSave({
-  enabled: !!$('#motor-enabled')?.checked,
-  portraitPulse: Number($('#motor-portrait')?.value || 1638),
-  landscapePulse: Number($('#motor-landscape')?.value || 4915),
-  moveDelayMs: Number($('#motor-delay')?.value || 600),
+  ...motorPayloadBase(),
   testOrientation: 'portrait',
 }));
 $('#motor-test-landscape-btn')?.addEventListener('click', () => motorSave({
-  enabled: !!$('#motor-enabled')?.checked,
-  portraitPulse: Number($('#motor-portrait')?.value || 1638),
-  landscapePulse: Number($('#motor-landscape')?.value || 4915),
-  moveDelayMs: Number($('#motor-delay')?.value || 600),
+  ...motorPayloadBase(),
   testOrientation: 'landscape',
 }));
 
