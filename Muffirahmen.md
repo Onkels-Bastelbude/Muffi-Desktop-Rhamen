@@ -2,6 +2,11 @@
 
 Stand: 2026-05-30
 
+## Aktueller Sprint (kurz)
+- **Done:** Vorschau, LED, WLAN-Settings, Server-Update, ESP Erst-Flash, ESP OTA/On-the-fly, Sync-Status
+- **Baustelle:** Medien, Motor
+- **Nächster Schritt:** Medien-Flow final glätten, danach Motor-UI/Funktionen abschließen
+
 ## Leitregel (ab sofort)
 - Bei Planung, UI-Flow, Texten und Entscheidungen **immer vom Szenario „Neuinstallation / Erstinstallation“** ausgehen.
 - Jeder zentrale Flow muss für einen neuen Nutzer ohne Vorwissen funktionieren (Server setzen → ESP koppeln → Verifizieren).
