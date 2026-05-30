@@ -192,13 +192,18 @@
         </div>
 
         <h3 style="margin-top:14px;">ESP – Erst-Flash (USB)</h3>
-        <div class="row">
-          <button type="button" id="fw-esp-usb-detect-btn">1) USB-Port erkennen</button>
-          <button type="button" id="fw-esp-usb-boot-btn">2) Boot-Modus prüfen</button>
-          <button type="button" id="fw-esp-usb-flash-btn">3) Erst-Flash starten</button>
-          <button type="button" id="fw-usb-btn">USB-Hilfe</button>
+        <div class="step-frame">
+          <div class="step-frame-title">USB-Erstflash</div>
+          <div class="row">
+            <button type="button" id="fw-esp-usb-detect-btn" class="step-btn">1) 🔌 USB-Port erkennen</button>
+            <button type="button" id="fw-esp-usb-boot-btn" class="step-btn">2) 🧰 Boot-Modus prüfen</button>
+            <button type="button" id="fw-esp-usb-flash-btn" class="step-btn">3) ⚡ Erst-Flash starten</button>
+            <button type="button" id="fw-usb-btn" class="step-btn">🛟 USB-Hilfe</button>
+          </div>
         </div>
-        <div id="fw-esp-usb-msg" class="msg"></div>
+        <div class="esp-status-stack">
+          <div id="fw-esp-usb-msg" class="status-card status-card-info"></div>
+        </div>
         <div id="fw-esp-usb-console-wrap" class="fw-console-wrap hidden">
           <div class="fw-console-head">ESP USB Flash Console</div>
           <pre id="fw-esp-usb-console-output" class="fw-console-output"></pre>
