@@ -100,6 +100,10 @@ async function refreshServer() {
 function refreshStorageUi(state) {
   if (!state) return;
   $('#storage-local-path').textContent = state.local?.path || '-';
+  const localInput = $('#storage-local-path-input');
+  if (localInput && document.activeElement !== localInput) {
+    localInput.value = state.local?.path || '';
+  }
   const networkInput = $('#storage-network-path');
   if (networkInput && document.activeElement !== networkInput) {
     networkInput.value = state.rawNetworkPath || state.network?.path || '/mnt/muffi';
@@ -396,10 +400,36 @@ $('#wlan-test-btn')?.addEventListener('click', async () => {
 
 $('#use-local-btn')?.addEventListener('click', async () => {
   try {
-    const d = await jpost('/api/storage', { mode: 'local' });
+    const localPath = ($('#storage-local-path-input')?.value || '').trim();
+    const payload = { mode: 'local' };
+    if (localPath) payload.localPath = localPath;
+    const d = await jpost('/api/storage', payload);
     storageState = d;
     refreshStorageUi(storageState);
-    $('#storage-msg').textContent = '✅ Lokaler Ordner ist jetzt aktiv.';
+    $('#storage-msg').textContent = `✅ Lokaler Ordner ist jetzt aktiv (${d.local?.path || localPath || '-'})`;
+    await refreshMediaAndFrame();
+  } catch (e2) {
+    $('#storage-msg').textContent = '❌ ' + e2.message;
+  }
+});
+
+$('#save-local-path-btn')?.addEventListener('click', async () => {
+  try {
+    const localPath = ($('#storage-local-path-input')?.value || '').trim();
+    if (!localPath) {
+      $('#storage-msg').textContent = 'ℹ️ Bitte lokalen Pfad eintragen.';
+      return;
+    }
+    if (!localPath.startsWith('/')) {
+      $('#storage-msg').textContent = '⚠️ Lokaler Pfad muss mit / beginnen.';
+      return;
+    }
+
+    const d = await jpost('/api/storage', { localPath });
+    storageState = d;
+    refreshStorageUi(storageState);
+    $('#storage-msg').textContent = `✅ Lokaler Pfad gespeichert: ${d.local?.path || localPath}`;
+    await refreshServer();
     await refreshMediaAndFrame();
   } catch (e2) {
     $('#storage-msg').textContent = '❌ ' + e2.message;
