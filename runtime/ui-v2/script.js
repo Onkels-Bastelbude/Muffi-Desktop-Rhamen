@@ -383,6 +383,12 @@ function updateMotorSpeedLabel(step) {
   $('#motor-speed-step-val').textContent = `${s}`;
 }
 
+function angleSaveMessage() {
+  const p = Number($('#motor-portrait')?.value || 1638);
+  const q = Number($('#motor-landscape')?.value || 4915);
+  return `✅ Winkel gespeichert (Hoch: ${p} / Quer: ${q}) · aktiv beim nächsten Bildwechsel`;
+}
+
 let motorEnabledState = true;
 
 function setMotorEnabledButtons(enabled) {
@@ -437,10 +443,10 @@ $('#motor-off-btn')?.addEventListener('click', () => motorSave({ enabled: false 
 $('#motor-portrait')?.addEventListener('input', () => { $('#motor-portrait-val').textContent = String(Number($('#motor-portrait').value || 1638)); });
 $('#motor-landscape')?.addEventListener('input', () => { $('#motor-landscape-val').textContent = String(Number($('#motor-landscape').value || 4915)); });
 $('#motor-speed-step')?.addEventListener('input', () => updateMotorSpeedLabel($('#motor-speed-step')?.value || 5));
-$('#motor-speed-step')?.addEventListener('change', () => motorSave({ moveDelayMs: motorStepToDelayMs($('#motor-speed-step')?.value || 5), enabled: motorEnabledState }, '✅ Motor gespeichert'));
-$('#motor-save-btn')?.addEventListener('click', () => motorSave(getMotorFormPayload(), '✅ Motor gespeichert'));
-$('#motor-test-portrait-btn')?.addEventListener('click', () => motorSave({ ...getMotorFormPayload(), testOrientation: 'portrait' }, '✅ Motor gespeichert'));
-$('#motor-test-landscape-btn')?.addEventListener('click', () => motorSave({ ...getMotorFormPayload(), testOrientation: 'landscape' }, '✅ Motor gespeichert'));
+$('#motor-speed-step')?.addEventListener('change', () => motorSave({ moveDelayMs: motorStepToDelayMs($('#motor-speed-step')?.value || 5), enabled: motorEnabledState }, '✅ Speed gespeichert · aktiv beim nächsten Bildwechsel'));
+$('#motor-save-btn')?.addEventListener('click', () => motorSave(getMotorFormPayload(), angleSaveMessage()));
+$('#motor-test-portrait-btn')?.addEventListener('click', () => motorSave({ ...getMotorFormPayload(), testOrientation: 'portrait' }, '✅ Test Hochformat gestartet'));
+$('#motor-test-landscape-btn')?.addEventListener('click', () => motorSave({ ...getMotorFormPayload(), testOrientation: 'landscape' }, '✅ Test Querformat gestartet'));
 
 async function wlanRefresh(){
   try {
