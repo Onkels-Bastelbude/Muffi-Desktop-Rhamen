@@ -8,10 +8,6 @@ Stand: 2026-05-30
 - **BOOT-Taster:** `GPIO9` (`BUTTON_PIN`) → Taster zwischen `GPIO9` und `GND`
 - **RESET-Taster:** `EN/RST` Pin am ESP → Taster zwischen `EN/RST` und `GND`
 
-## Zusatz-Pins (bereits genutzt)
-
-- **Seitentaste (LED Farbwechsel):** `GPIO0` (`SIDE_BUTTON_PIN`)
-
 ## Nicht in externer Pin-Liste führen
 
 - **Display-Pins** (fest auf dem C6-Board verdrahtet)
