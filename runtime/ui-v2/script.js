@@ -828,7 +828,8 @@ async function fwDetectUsbPort() {
     fwEspUsbPort = d.selectedPort || '';
     const count = Array.isArray(d.ports) ? d.ports.length : 0;
     if (!fwEspUsbPort) {
-      $('#fw-esp-usb-msg').textContent = `⚠️ Kein ESP-Port erkannt (gefunden: ${count}).`; 
+      const reason = d.error ? ` (${d.error})` : '';
+      $('#fw-esp-usb-msg').textContent = `⚠️ Kein ESP-Port erkannt (gefunden: ${count})${reason}.`; 
       return;
     }
     $('#fw-esp-usb-msg').textContent = `✅ Port erkannt: ${fwEspUsbPort} (Ports gesamt: ${count})`;

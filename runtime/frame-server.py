@@ -8,7 +8,7 @@ from http.server import ThreadingHTTPServer, BaseHTTPRequestHandler
 from PIL import Image, ImageOps
 from urllib.parse import unquote, quote, parse_qs, urlparse
 from html import escape
-import os, io, json, time, threading, re, socket, subprocess, tempfile
+import os, io, json, time, threading, re, socket, subprocess, tempfile, shutil
 from pathlib import Path
 
 PHOTO_DIR  = "/mnt/muffi"
@@ -1370,17 +1370,43 @@ def _resolve_usb_flash_script_path():
     return ""
 
 
+def _resolve_arduino_cli_path():
+    env_cli = str(os.environ.get("ARDUINO_CLI", "") or "").strip()
+    if env_cli and os.path.isfile(env_cli) and os.access(env_cli, os.X_OK):
+        return env_cli
+
+    which_cli = shutil.which("arduino-cli")
+    if which_cli:
+        return which_cli
+
+    candidates = [
+        os.path.expanduser("~/.local/bin/arduino-cli"),
+        "/usr/local/bin/arduino-cli",
+        "/usr/bin/arduino-cli",
+        os.path.abspath(os.path.join(RUNTIME_DIR, "..", "bin", "arduino-cli")),
+    ]
+    for c in candidates:
+        if os.path.isfile(c) and os.access(c, os.X_OK):
+            return c
+    return ""
+
+
 def _list_arduino_ports():
+    cli = _resolve_arduino_cli_path()
+    if not cli:
+        return [], "arduino-cli nicht gefunden"
+
     try:
         r = subprocess.run(
-            ["arduino-cli", "board", "list", "--json"],
+            [cli, "board", "list", "--json"],
             capture_output=True,
             text=True,
             timeout=8,
             check=False,
         )
         if r.returncode != 0:
-            return []
+            msg = (r.stderr or r.stdout or "Fehler bei arduino-cli board list").strip()
+            return [], msg[:300]
         data = json.loads(r.stdout or "{}")
         out = []
         for item in (data.get("detected_ports") or []):
@@ -1404,13 +1430,13 @@ def _list_arduino_ports():
                 "boards": names,
                 "fqbn": fqbn,
             })
-        return out
-    except Exception:
-        return []
+        return out, ""
+    except Exception as e:
+        return [], str(e)
 
 
 def get_esp_usb_status():
-    ports = _list_arduino_ports()
+    ports, error = _list_arduino_ports()
     selected = ""
     for p in ports:
         hay = " ".join([p.get("fqbn", "")] + (p.get("boards") or [])).lower()
@@ -1424,6 +1450,8 @@ def get_esp_usb_status():
         "ports": ports,
         "selectedPort": selected,
         "hasPorts": bool(ports),
+        "error": error,
+        "arduinoCli": _resolve_arduino_cli_path(),
     }
 
 
