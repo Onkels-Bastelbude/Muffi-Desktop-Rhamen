@@ -681,16 +681,19 @@ void servoMove(int position) {
   if (speedRef > 5000) speedRef = 5000;
 
   // Schrittweise fahren (sichtbarer Speed-Unterschied)
-  // klein/schnell -> größere Puls-Sprünge + kurze Pausen
+  // Wichtig: Servos reagieren in ~20ms Frames. Zu kurze Pausen => kaum Bewegung.
+  // klein/schnell -> größere Puls-Sprünge + kürzere Pausen
   // groß/langsam -> kleinere Puls-Sprünge + längere Pausen
-  int pulseStep = map(speedRef, 120, 5000, 260, 14);
-  int stepPauseMs = map(speedRef, 120, 5000, 2, 20);
-  if (pulseStep < 4) pulseStep = 4;
-  if (stepPauseMs < 1) stepPauseMs = 1;
+  int pulseStep = map(speedRef, 120, 5000, 320, 80);
+  int stepPauseMs = map(speedRef, 120, 5000, 20, 45);
+  int finalHoldMs = map(speedRef, 120, 5000, 180, 420);
+  if (pulseStep < 20) pulseStep = 20;
+  if (stepPauseMs < 20) stepPauseMs = 20;
+  if (finalHoldMs < 120) finalHoldMs = 120;
 
   if (target == from) {
     ledcWrite(SERVO_PIN, target);
-    delay(80);
+    delay(finalHoldMs);
     ledcWrite(SERVO_PIN, 0);
     currentServoPulse = target;
     return;
@@ -712,7 +715,7 @@ void servoMove(int position) {
     delay(stepPauseMs);
   }
 
-  delay(80);
+  delay(finalHoldMs);
   ledcWrite(SERVO_PIN, 0); // Signal aus = kein Brummen
   currentServoPulse = target;
 }
