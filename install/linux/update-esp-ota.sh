@@ -13,7 +13,29 @@ BUILD_DIR="${MUFFI_BUILD_DIR:-$SKETCH_DIR/build}"
 FQBN="${MUFFI_FQBN:-esp32:esp32:esp32c6}"
 OTA_PORT="${ESP_OTA_PORT:-3232}"
 
-ARDUINO_CLI="${ARDUINO_CLI:-arduino-cli}"
+ARDUINO_CLI="${ARDUINO_CLI:-}"
+
+resolve_arduino_cli() {
+  if [[ -n "$ARDUINO_CLI" && -x "$ARDUINO_CLI" ]]; then
+    echo "$ARDUINO_CLI"
+    return 0
+  fi
+  if command -v arduino-cli >/dev/null 2>&1; then
+    command -v arduino-cli
+    return 0
+  fi
+  local c
+  for c in \
+    "$HOME/.local/bin/arduino-cli" \
+    "/usr/local/bin/arduino-cli" \
+    "/usr/bin/arduino-cli"; do
+    if [[ -x "$c" ]]; then
+      echo "$c"
+      return 0
+    fi
+  done
+  return 1
+}
 
 echo "[info] install dir: $INSTALL_DIR"
 echo "[info] sketch dir:  $SKETCH_DIR"
@@ -26,12 +48,18 @@ if [[ ! -d "$SKETCH_DIR" ]]; then
   exit 2
 fi
 
-echo "[info] kompiliere Firmware …"
-"$ARDUINO_CLI" compile --fqbn "$FQBN" --build-path "$BUILD_DIR" "$SKETCH_DIR"
+if ARDUINO_CLI_BIN="$(resolve_arduino_cli)"; then
+  echo "[info] arduino-cli: $ARDUINO_CLI_BIN"
+  echo "[info] kompiliere Firmware …"
+  "$ARDUINO_CLI_BIN" compile --fqbn "$FQBN" --build-path "$BUILD_DIR" "$SKETCH_DIR"
+else
+  echo "[warn] arduino-cli nicht gefunden — überspringe Compile und nutze vorhandene Binärdatei"
+fi
 
 BIN_PATH="$BUILD_DIR/muffi-frame.ino.bin"
 if [[ ! -f "$BIN_PATH" ]]; then
   echo "[error] Firmware-Binärdatei fehlt: $BIN_PATH"
+  echo "[hint] Entweder arduino-cli installieren oder einmal lokal kompilieren, damit die .bin existiert"
   exit 3
 fi
 
