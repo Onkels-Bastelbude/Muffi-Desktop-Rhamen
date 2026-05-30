@@ -1860,6 +1860,10 @@ class FrameHandler(BaseHTTPRequestHandler):
             self.send_ui_v2_file("index.html")
             return
 
+        if path in ("ui-v2", "ui-v2/"):
+            self.send_ui_v2_file("index.html")
+            return
+
         if path.startswith("ui-v2/"):
             filename = path[len("ui-v2/"):].strip()
             if filename == "":
