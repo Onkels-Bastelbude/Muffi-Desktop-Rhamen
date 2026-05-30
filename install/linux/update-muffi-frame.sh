@@ -49,6 +49,25 @@ ensure_esp32_core() {
   ok "ESP32 Core installiert"
 }
 
+ensure_arduino_libs() {
+  log "Arduino-Libraries prüfen (LovyanGFX, JPEGDEC, ArduinoJson) …"
+  arduino-cli lib update-index >/dev/null 2>&1 || true
+
+  local need_install=()
+  for lib in LovyanGFX JPEGDEC ArduinoJson; do
+    if ! arduino-cli lib list | awk '{print $1}' | grep -qx "$lib"; then
+      need_install+=("$lib")
+    fi
+  done
+
+  if [[ ${#need_install[@]} -gt 0 ]]; then
+    arduino-cli lib install "${need_install[@]}"
+    ok "Arduino-Libraries installiert: ${need_install[*]}"
+  else
+    ok "Arduino-Libraries bereits vorhanden"
+  fi
+}
+
 [[ "$(id -u)" -eq 0 ]] && die "Bitte als normaler User ausführen, nicht root."
 command -v git >/dev/null 2>&1 || die "git fehlt"
 command -v systemctl >/dev/null 2>&1 || die "systemctl fehlt"
@@ -107,6 +126,7 @@ fi
 # Toolchain für ESP-Workflows selbstheilend bereitstellen
 ensure_arduino_cli
 ensure_esp32_core
+ensure_arduino_libs
 
 if [[ "$SKIP_SERVICE_RESTART" -eq 1 ]]; then
   log "Service-Restart übersprungen (SKIP_SERVICE_RESTART=1)"

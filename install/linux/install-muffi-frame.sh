@@ -58,6 +58,25 @@ ensure_esp32_core() {
   ok "ESP32 Core installiert"
 }
 
+ensure_arduino_libs() {
+  log "Arduino-Libraries prüfen (LovyanGFX, JPEGDEC, ArduinoJson) …"
+  arduino-cli lib update-index >/dev/null 2>&1 || true
+
+  local need_install=()
+  for lib in LovyanGFX JPEGDEC ArduinoJson; do
+    if ! arduino-cli lib list | awk '{print $1}' | grep -qx "$lib"; then
+      need_install+=("$lib")
+    fi
+  done
+
+  if [[ ${#need_install[@]} -gt 0 ]]; then
+    arduino-cli lib install "${need_install[@]}"
+    ok "Arduino-Libraries installiert: ${need_install[*]}"
+  else
+    ok "Arduino-Libraries bereits vorhanden"
+  fi
+}
+
 # ── Fehler-Trap ─────────────────────────────────────────────────────────────
 trap 'die "Unerwarteter Fehler in Zeile $LINENO. Installation abgebrochen."' ERR
 
@@ -110,6 +129,7 @@ fi
 # ── Arduino CLI + ESP32 Core (für Erst-Flash/OTA Workflows) ───────────────
 ensure_arduino_cli
 ensure_esp32_core
+ensure_arduino_libs
 
 # ── Port-Konflikt prüfen ─────────────────────────────────────────────────────
 if ss -tlnp 2>/dev/null | grep -q ":${PORT} " && \

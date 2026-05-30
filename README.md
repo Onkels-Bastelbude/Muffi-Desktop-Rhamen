@@ -26,6 +26,7 @@ Danach:
 Der One-Click Installer richtet jetzt zusätzlich automatisch ein:
 - `arduino-cli` (lokal unter `~/.local/bin`, falls noch nicht vorhanden)
 - ESP32 Core `esp32:esp32` (inkl. Index-URL)
+- benötigte Arduino-Libraries: `LovyanGFX`, `JPEGDEC`, `ArduinoJson`
 
 Damit sind Erst-Flash (USB) und OTA-Workflows direkt nach Installation nutzbar.
 
