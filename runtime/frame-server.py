@@ -2371,7 +2371,9 @@ class FrameHandler(BaseHTTPRequestHandler):
             wlan = get_wlan_config_snapshot(mask_password=False)
             ua = str(self.headers.get("User-Agent", "") or "")
             esp_host = str(wlan.get("espHost", "") or "")
-            from_esp = ("ESP" in ua.upper()) or (esp_host and client_ip and client_ip == esp_host)
+            qs_params = parse_qs(parsed.query or "")
+            source = str((qs_params.get("source") or [""])[0] or "").strip().lower()
+            from_esp = (source == "esp") or ("ESP" in ua.upper()) or (esp_host and client_ip and client_ip == esp_host)
 
             sync = get_esp_sync_snapshot()
             if from_esp:

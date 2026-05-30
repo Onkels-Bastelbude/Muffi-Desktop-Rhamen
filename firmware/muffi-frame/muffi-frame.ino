@@ -194,7 +194,7 @@ bool fetchWlanConfigFromServer() {
   if (WiFi.status() != WL_CONNECTED) return false;
 
   HTTPClient http;
-  http.begin(serverUrl("/api/wlan"));
+  http.begin(serverUrl("/api/wlan?source=esp"));
   http.setTimeout(3500);
   int code = http.GET();
   if (code != 200) {
