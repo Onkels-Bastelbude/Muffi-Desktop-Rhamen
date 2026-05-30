@@ -12,6 +12,7 @@ SKETCH_DIR="${MUFFI_SKETCH_DIR:-$INSTALL_DIR/firmware/muffi-frame}"
 BUILD_DIR="${MUFFI_BUILD_DIR:-$SKETCH_DIR/build}"
 FQBN="${MUFFI_FQBN:-esp32:esp32:esp32c6}"
 OTA_PORT="${ESP_OTA_PORT:-3232}"
+ESPOTA_URL="${ESPOTA_URL:-https://raw.githubusercontent.com/espressif/arduino-esp32/master/tools/espota.py}"
 
 ARDUINO_CLI="${ARDUINO_CLI:-}"
 
@@ -69,13 +70,39 @@ if [[ ! -f "$BIN_PATH" ]]; then
   fi
 fi
 
-ESPOTA_PY="${ESPOTA_PY:-}"
-if [[ -z "$ESPOTA_PY" ]]; then
-  ESPOTA_PY="$(ls -1d "$HOME"/.arduino15/packages/esp32/hardware/esp32/*/tools/espota.py 2>/dev/null | sort -V | tail -n 1 || true)"
-fi
-if [[ -z "$ESPOTA_PY" || ! -f "$ESPOTA_PY" ]]; then
-  echo "[error] espota.py nicht gefunden (ESP32 core installiert?)"
-  exit 4
+resolve_espota_py() {
+  if [[ -n "${ESPOTA_PY:-}" && -f "${ESPOTA_PY}" ]]; then
+    echo "${ESPOTA_PY}"
+    return 0
+  fi
+
+  local c
+  for c in \
+    "$HOME/.arduino15/packages/esp32/hardware/esp32"/*/tools/espota.py \
+    "/home"/*/.arduino15/packages/esp32/hardware/esp32/*/tools/espota.py \
+    "$INSTALL_DIR/.arduino15/packages/esp32/hardware/esp32"/*/tools/espota.py; do
+    if [[ -f "$c" ]]; then
+      echo "$c"
+      return 0
+    fi
+  done
+
+  return 1
+}
+
+ESPOTA_PY=""
+if ESPOTA_PY="$(resolve_espota_py)"; then
+  echo "[info] espota.py: $ESPOTA_PY"
+else
+  TMP_ESPOTA="$(mktemp /tmp/muffi-espota-XXXX.py)"
+  if curl -fsSL "$ESPOTA_URL" -o "$TMP_ESPOTA"; then
+    ESPOTA_PY="$TMP_ESPOTA"
+    echo "[warn] espota.py nicht lokal gefunden — nutze Download: $ESPOTA_URL"
+  else
+    rm -f "$TMP_ESPOTA" >/dev/null 2>&1 || true
+    echo "[error] espota.py nicht gefunden und Download fehlgeschlagen"
+    exit 4
+  fi
 fi
 
 echo "[info] ota upload …"
@@ -83,6 +110,10 @@ if [[ -n "${ESP_OTA_AUTH:-}" ]]; then
   python3 "$ESPOTA_PY" -i "$ESP_HOST" -p "$OTA_PORT" -a "$ESP_OTA_AUTH" -f "$BIN_PATH"
 else
   python3 "$ESPOTA_PY" -i "$ESP_HOST" -p "$OTA_PORT" -f "$BIN_PATH"
+fi
+
+if [[ -n "${TMP_ESPOTA:-}" && -f "${TMP_ESPOTA}" ]]; then
+  rm -f "${TMP_ESPOTA}" >/dev/null 2>&1 || true
 fi
 
 echo "[ok] ESP OTA Update abgeschlossen"
