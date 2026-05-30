@@ -28,6 +28,7 @@
 #endif
 
 const char* SERVER_BASE_DEFAULT   = "http://frame-server.local:8765"; // Beispielwert, lokal anpassen
+const char* SERVER_BASE_FALLBACK  = "http://192.168.50.68:8765";
 #define DEFAULT_REFRESH_MS   (5 * 60 * 1000UL)
 #define BUTTON_PIN   9    // BOOT-Knopf
 #define SIDE_BUTTON_PIN 0  // Seitentaste (bei Bedarf anpassen)
@@ -193,17 +194,32 @@ bool connectWiFiOnce(const String& ssid, const String& password, uint32_t timeou
 bool fetchWlanConfigFromServer() {
   if (WiFi.status() != WL_CONNECTED) return false;
 
-  HTTPClient http;
-  http.begin(serverUrl("/api/wlan?source=esp"));
-  http.setTimeout(3500);
-  int code = http.GET();
-  if (code != 200) {
-    http.end();
-    return false;
-  }
+  String endpoints[3];
+  endpoints[0] = serverUrl("/api/wlan?source=esp");
+  endpoints[1] = String(SERVER_BASE_FALLBACK) + "/api/wlan?source=esp";
+  endpoints[2] = String(SERVER_BASE_DEFAULT) + "/api/wlan?source=esp";
 
-  String body = http.getString();
-  http.end();
+  String body = "";
+  bool okFetch = false;
+
+  for (int i = 0; i < 3; i++) {
+    String url = endpoints[i];
+    if (!url.length()) continue;
+    if (i > 0 && url == endpoints[0]) continue;
+
+    HTTPClient http;
+    http.begin(url);
+    http.setTimeout(3500);
+    int code = http.GET();
+    if (code == 200) {
+      body = http.getString();
+      http.end();
+      okFetch = true;
+      break;
+    }
+    http.end();
+  }
+  if (!okFetch) return false;
 
   JsonDocument doc;
   if (deserializeJson(doc, body)) return false;
