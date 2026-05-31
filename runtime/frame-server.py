@@ -67,6 +67,7 @@ FRAME_STATE = {
 }
 
 LED_LOCK = threading.Lock()
+CONFIG_LOCK = threading.Lock()
 
 UPDATE_LOCK = threading.Lock()
 UPDATE_STATE = {
@@ -441,7 +442,8 @@ def smb_browse_folder(host, share, path="", user="", password="", timeout=8):
 
     for line in stdout.splitlines():
         # "  filename                         D        0  Mon Jan  1 00:00:00 2026"
-        m = re.match(r'^\s+(.+?)\s+(D|A|H|N|R|S)\s+(-?\d+)\s', line)
+        # Greedy name match -> nimmt den letzten Attribute/Size-Block, robuster bei Dateinamen mit " D " etc.
+        m = re.match(r'^\s+(.+)\s+(D|A|H|N|R|S)\s+(-?\d+)\s+[A-Za-z]{3}\s', line)
         if not m:
             continue
         name = m.group(1).strip()
@@ -835,57 +837,60 @@ def get_motor_config_snapshot():
 
 
 def update_motor_config(patch: dict):
-    current = sanitize_motor_config((SERVER_CONFIG or {}).get("motor", {}))
+    with CONFIG_LOCK:
+        current = sanitize_motor_config((SERVER_CONFIG or {}).get("motor", {}))
 
-    if "enabled" in patch:
-        current["enabled"] = bool(patch.get("enabled"))
-    if "portraitPulse" in patch:
-        current["portraitPulse"] = clamp_motor_pulse(patch.get("portraitPulse"), current.get("portraitPulse", 1638))
-    if "landscapePulse" in patch:
-        current["landscapePulse"] = clamp_motor_pulse(patch.get("landscapePulse"), current.get("landscapePulse", 4915))
-    if "moveDelayMs" in patch:
-        current["moveDelayMs"] = clamp_motor_delay_ms(patch.get("moveDelayMs"), current.get("moveDelayMs", 600))
+        if "enabled" in patch:
+            current["enabled"] = bool(patch.get("enabled"))
+        if "portraitPulse" in patch:
+            current["portraitPulse"] = clamp_motor_pulse(patch.get("portraitPulse"), current.get("portraitPulse", 1638))
+        if "landscapePulse" in patch:
+            current["landscapePulse"] = clamp_motor_pulse(patch.get("landscapePulse"), current.get("landscapePulse", 4915))
+        if "moveDelayMs" in patch:
+            current["moveDelayMs"] = clamp_motor_delay_ms(patch.get("moveDelayMs"), current.get("moveDelayMs", 600))
 
-    test_orientation = str(patch.get("testOrientation", "") or "").strip().lower()
-    if test_orientation in ("portrait", "landscape"):
-        current["commandOrientation"] = test_orientation
-        current["commandToken"] = str(int(time.time() * 1000))
+        test_orientation = str(patch.get("testOrientation", "") or "").strip().lower()
+        if test_orientation in ("portrait", "landscape"):
+            current["commandOrientation"] = test_orientation
+            current["commandToken"] = str(int(time.time() * 1000))
 
-    if bool(patch.get("clearCommand")):
-        current["commandOrientation"] = ""
+        if bool(patch.get("clearCommand")):
+            current["commandOrientation"] = ""
+            current["commandToken"] = ""
 
-    if "source" in patch:
-        current["source"] = str(patch.get("source") or "server")[:32]
+        if "source" in patch:
+            current["source"] = str(patch.get("source") or "server")[:32]
 
-    current["updatedAt"] = time.time()
-    SERVER_CONFIG["motor"] = current
-    save_config(SERVER_CONFIG)
-    return dict(current)
+        current["updatedAt"] = time.time()
+        SERVER_CONFIG["motor"] = current
+        save_config(SERVER_CONFIG)
+        return dict(current)
 
 
 def update_led_config(patch: dict):
     with LED_LOCK:
-        current = sanitize_led_config((SERVER_CONFIG or {}).get("led", {}))
-        if "on" in patch:
-            current["on"] = bool(patch.get("on"))
-        if "brightness" in patch:
-            current["brightness"] = clamp_brightness(patch.get("brightness"))
-        if "color" in patch:
-            current["color"] = normalize_hex_color(patch.get("color"))
-        if "colorIndex" in patch:
-            current["colorIndex"] = clamp_color_index(patch.get("colorIndex"))
-        if "ledOrder" in patch or "led_order" in patch:
-            current["ledOrder"] = clamp_led_order(patch.get("ledOrder", patch.get("led_order")))
-        if "source" in patch:
-            current["source"] = str(patch.get("source") or "server")[:32]
-        current["updatedAt"] = time.time()
+        with CONFIG_LOCK:
+            current = sanitize_led_config((SERVER_CONFIG or {}).get("led", {}))
+            if "on" in patch:
+                current["on"] = bool(patch.get("on"))
+            if "brightness" in patch:
+                current["brightness"] = clamp_brightness(patch.get("brightness"))
+            if "color" in patch:
+                current["color"] = normalize_hex_color(patch.get("color"))
+            if "colorIndex" in patch:
+                current["colorIndex"] = clamp_color_index(patch.get("colorIndex"))
+            if "ledOrder" in patch or "led_order" in patch:
+                current["ledOrder"] = clamp_led_order(patch.get("ledOrder", patch.get("led_order")))
+            if "source" in patch:
+                current["source"] = str(patch.get("source") or "server")[:32]
+            current["updatedAt"] = time.time()
 
-        SERVER_CONFIG["led"] = current
-        save_config(SERVER_CONFIG)
+            SERVER_CONFIG["led"] = current
+            save_config(SERVER_CONFIG)
 
-        out = dict(current)
-        out["catalog"] = LED_COLORS
-        return out
+            out = dict(current)
+            out["catalog"] = LED_COLORS
+            return out
 
 
 def get_wlan_config_snapshot(mask_password=False):
@@ -896,33 +901,34 @@ def get_wlan_config_snapshot(mask_password=False):
 
 
 def update_wlan_config(patch: dict):
-    current = sanitize_wlan_config((SERVER_CONFIG or {}).get("wlan", {}))
-    if "ssid" in patch:
-        current["ssid"] = str(patch.get("ssid") or "").strip()[:128]
-    if "password" in patch:
-        current["password"] = str(patch.get("password") or "")[:128]
-    if "espHost" in patch:
-        current["espHost"] = str(patch.get("espHost") or "").strip()[:128]
-    if "serverBase" in patch:
-        current["serverBase"] = str(patch.get("serverBase") or "").strip()[:256]
-    if "fallbackEnabled" in patch:
-        current["fallbackEnabled"] = bool(patch.get("fallbackEnabled"))
-    if "fallbackServerBase" in patch:
-        current["fallbackServerBase"] = str(patch.get("fallbackServerBase") or "").strip()[:256]
-    if "syncTimeoutMs" in patch:
-        try:
-            tm = int(patch.get("syncTimeoutMs"))
-        except Exception:
-            tm = current.get("syncTimeoutMs", 1500)
-        if tm < 600:
-            tm = 600
-        if tm > 5000:
-            tm = 5000
-        current["syncTimeoutMs"] = tm
-    current["updatedAt"] = time.time()
-    SERVER_CONFIG["wlan"] = current
-    save_config(SERVER_CONFIG)
-    return dict(current)
+    with CONFIG_LOCK:
+        current = sanitize_wlan_config((SERVER_CONFIG or {}).get("wlan", {}))
+        if "ssid" in patch:
+            current["ssid"] = str(patch.get("ssid") or "").strip()[:128]
+        if "password" in patch:
+            current["password"] = str(patch.get("password") or "")[:128]
+        if "espHost" in patch:
+            current["espHost"] = str(patch.get("espHost") or "").strip()[:128]
+        if "serverBase" in patch:
+            current["serverBase"] = str(patch.get("serverBase") or "").strip()[:256]
+        if "fallbackEnabled" in patch:
+            current["fallbackEnabled"] = bool(patch.get("fallbackEnabled"))
+        if "fallbackServerBase" in patch:
+            current["fallbackServerBase"] = str(patch.get("fallbackServerBase") or "").strip()[:256]
+        if "syncTimeoutMs" in patch:
+            try:
+                tm = int(patch.get("syncTimeoutMs"))
+            except Exception:
+                tm = current.get("syncTimeoutMs", 1500)
+            if tm < 600:
+                tm = 600
+            if tm > 5000:
+                tm = 5000
+            current["syncTimeoutMs"] = tm
+        current["updatedAt"] = time.time()
+        SERVER_CONFIG["wlan"] = current
+        save_config(SERVER_CONFIG)
+        return dict(current)
 
 
 def get_esp_sync_snapshot():
@@ -930,26 +936,28 @@ def get_esp_sync_snapshot():
 
 
 def mark_esp_prepare_requested():
-    sync = sanitize_esp_sync((SERVER_CONFIG or {}).get("espSync", {}))
-    token = str(int(time.time() * 1000))
-    sync["desiredToken"] = token
-    sync["lastPrepareAt"] = time.time()
-    SERVER_CONFIG["espSync"] = sync
-    save_config(SERVER_CONFIG)
-    return dict(sync)
+    with CONFIG_LOCK:
+        sync = sanitize_esp_sync((SERVER_CONFIG or {}).get("espSync", {}))
+        token = str(int(time.time() * 1000))
+        sync["desiredToken"] = token
+        sync["lastPrepareAt"] = time.time()
+        SERVER_CONFIG["espSync"] = sync
+        save_config(SERVER_CONFIG)
+        return dict(sync)
 
 
 def mark_esp_wlan_pull(client_ip=""):
-    sync = sanitize_esp_sync((SERVER_CONFIG or {}).get("espSync", {}))
-    sync["lastAckAt"] = time.time()
-    if client_ip:
-        sync["lastAckIp"] = str(client_ip)[:64]
-    desired = str(sync.get("desiredToken") or "")
-    if desired:
-        sync["lastAckToken"] = desired
-    SERVER_CONFIG["espSync"] = sync
-    save_config(SERVER_CONFIG)
-    return dict(sync)
+    with CONFIG_LOCK:
+        sync = sanitize_esp_sync((SERVER_CONFIG or {}).get("espSync", {}))
+        sync["lastAckAt"] = time.time()
+        if client_ip:
+            sync["lastAckIp"] = str(client_ip)[:64]
+        desired = str(sync.get("desiredToken") or "")
+        if desired:
+            sync["lastAckToken"] = desired
+        SERVER_CONFIG["espSync"] = sync
+        save_config(SERVER_CONFIG)
+        return dict(sync)
 
 
 def get_esp_sync_status():
@@ -989,14 +997,15 @@ def get_storage_auth_snapshot(mask_password=True):
 
 
 def update_storage_auth(patch: dict):
-    current = sanitize_storage_auth((SERVER_CONFIG or {}).get("storageAuth", {}))
-    if "username" in patch:
-        current["username"] = str(patch.get("username") or "").strip()[:128]
-    if "password" in patch:
-        current["password"] = str(patch.get("password") or "")[:128]
-    current["updatedAt"] = time.time()
-    SERVER_CONFIG["storageAuth"] = current
-    save_config(SERVER_CONFIG)
+    with CONFIG_LOCK:
+        current = sanitize_storage_auth((SERVER_CONFIG or {}).get("storageAuth", {}))
+        if "username" in patch:
+            current["username"] = str(patch.get("username") or "").strip()[:128]
+        if "password" in patch:
+            current["password"] = str(patch.get("password") or "")[:128]
+        current["updatedAt"] = time.time()
+        SERVER_CONFIG["storageAuth"] = current
+        save_config(SERVER_CONFIG)
     return get_storage_auth_snapshot(mask_password=True)
 
 
@@ -1005,39 +1014,40 @@ def get_storage_config_snapshot():
 
 
 def update_storage_config(patch: dict):
-    current = sanitize_storage_config((SERVER_CONFIG or {}).get("storage", {}))
     normalized_from = ""
     normalized_hint = ""
     share_switch_required = False
     blocked = False
-    requested_mode = None
-    if "mode" in patch:
-        mode = str(patch.get("mode") or "auto").strip().lower()
-        if mode in ("auto", "local", "network"):
-            requested_mode = mode
-    if "networkPath" in patch:
-        current["rawNetworkPath"] = str(patch.get("networkPath") or "").strip()[:256]
-        analysis = analyze_network_path_input(patch.get("networkPath"))
-        normalized_from = analysis.get("normalizedFrom", "")
-        normalized_hint = analysis.get("hint", "")
-        share_switch_required = bool(analysis.get("shareSwitchRequired"))
-        blocked = bool(analysis.get("blocked"))
-        path = analysis.get("mappedPath")
-        if path:
-            current["networkPath"] = path
-    if requested_mode:
-        # Netzwerkmodus nur setzen, wenn Eingabe nicht geblockt wurde
-        if not (requested_mode == "network" and blocked):
-            current["mode"] = requested_mode
-    if "localPath" in patch:
-        path = str(patch.get("localPath") or "").strip()
-        if path.startswith("/"):
-            current["localPath"] = os.path.abspath(path)[:256]
 
-    current["updatedAt"] = time.time()
+    with CONFIG_LOCK:
+        current = sanitize_storage_config((SERVER_CONFIG or {}).get("storage", {}))
+        requested_mode = None
+        if "mode" in patch:
+            mode = str(patch.get("mode") or "auto").strip().lower()
+            if mode in ("auto", "local", "network"):
+                requested_mode = mode
+        if "networkPath" in patch:
+            current["rawNetworkPath"] = str(patch.get("networkPath") or "").strip()[:256]
+            analysis = analyze_network_path_input(patch.get("networkPath"))
+            normalized_from = analysis.get("normalizedFrom", "")
+            normalized_hint = analysis.get("hint", "")
+            share_switch_required = bool(analysis.get("shareSwitchRequired"))
+            blocked = bool(analysis.get("blocked"))
+            path = analysis.get("mappedPath")
+            if path:
+                current["networkPath"] = path
+        if requested_mode:
+            # Netzwerkmodus nur setzen, wenn Eingabe nicht geblockt wurde
+            if not (requested_mode == "network" and blocked):
+                current["mode"] = requested_mode
+        if "localPath" in patch:
+            path = str(patch.get("localPath") or "").strip()
+            if path.startswith("/"):
+                current["localPath"] = os.path.abspath(path)[:256]
 
-    SERVER_CONFIG["storage"] = current
-    save_config(SERVER_CONFIG)
+        current["updatedAt"] = time.time()
+        SERVER_CONFIG["storage"] = current
+        save_config(SERVER_CONFIG)
     out = get_storage_state()
     out["normalizedNetworkPathFrom"] = normalized_from
     out["normalizedNetworkPathHint"] = normalized_hint
@@ -1142,10 +1152,8 @@ def test_share_credentials(username: str, password: str, network_path: str = "")
             host = host or req2.get("server", "")
             share = share or req2.get("share", "")
 
-    if not host:
-        host = "SERVER"
-    if not share:
-        share = "Bilder MUffi"
+    if not host or not share:
+        return {"ok": False, "error": "Kein aktiver CIFS-Mount gefunden. Bitte erst Share verbinden."}
 
     cmd = ["smbclient", f"//{host}/{share}", "-U", f"{user}%{pw}", "-c", "ls"]
     _out, err, rc = _smb_run(cmd, timeout=8)
@@ -1156,7 +1164,7 @@ def test_share_credentials(username: str, password: str, network_path: str = "")
 
 def _update_append_line(line: str):
     text = str(line or "").rstrip("\n")
-    text = re.sub(r"\x1b\[[0-9;]*m", "", text)
+    text = re.sub(r"\x1b\[[0-9;?]*[A-Za-z]", "", text)
     with UPDATE_LOCK:
         UPDATE_STATE["lines"].append(text)
         # Speicher begrenzen
@@ -2653,17 +2661,19 @@ class FrameHandler(BaseHTTPRequestHandler):
                 self.send_json({"error": "refreshMs oder refreshSeconds fehlt"}, status=400)
                 return
 
-            SERVER_CONFIG["refreshMs"] = clamp_refresh_ms(refresh_ms)
-            try:
-                save_config(SERVER_CONFIG)
-            except Exception as e:
-                self.send_json({"error": f"Speichern fehlgeschlagen: {e}"}, status=500)
-                return
+            with CONFIG_LOCK:
+                SERVER_CONFIG["refreshMs"] = clamp_refresh_ms(refresh_ms)
+                try:
+                    save_config(SERVER_CONFIG)
+                except Exception as e:
+                    self.send_json({"error": f"Speichern fehlgeschlagen: {e}"}, status=500)
+                    return
+                saved_refresh_ms = SERVER_CONFIG["refreshMs"]
 
             self.send_json({
                 "ok": True,
-                "refreshMs": SERVER_CONFIG["refreshMs"],
-                "refreshSeconds": SERVER_CONFIG["refreshMs"] // 1000
+                "refreshMs": saved_refresh_ms,
+                "refreshSeconds": saved_refresh_ms // 1000
             })
             return
 
